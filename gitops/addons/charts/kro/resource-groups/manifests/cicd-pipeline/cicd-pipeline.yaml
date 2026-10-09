@@ -2634,10 +2634,10 @@ spec:
              app.kubernetes.io/component: cicd-pipeline
              app.kubernetes.io/managed-by: kro
        spec:
-          service:
-             ports:
-               - port: 12000
-                 targetPort: 12000
+          # No spec.service: Argo Events would copy this EventSource's labels, including kro's
+          # applyset part-of label, onto the Service it generates, and kro would prune that
+          # Service on every reconcile ("cluster mutated"). The kro-owned webhookservice below
+          # selects the EventSource pod instead.
           # A gitlab EventSource (not webhook) rejects requests whose X-Gitlab-Token header
           # doesn't match secretToken. setup-gitlab-webhook registers the GitLab hook, so no
           # projects or groups are listed and the EventSource never calls the GitLab API.
@@ -2650,7 +2650,7 @@ spec:
                  port: '12000'
                  endpoint: /argo-events/${schema.spec.name}
                  method: POST
-                 url: http://${schema.spec.name}-gitlab-eventsource-eventsource-svc.${schema.metadata.namespace}.svc.cluster.local:12000/argo-events/${schema.spec.name}
+                 url: http://${schema.spec.name}-webhook-service.${schema.metadata.namespace}.svc.cluster.local:12000/argo-events/${schema.spec.name}
                events:
                  - PushEvents
                  - IssuesEvents
@@ -3055,7 +3055,7 @@ spec:
                 paths:
                   - backend:
                       service:
-                        name: ${schema.spec.name}-gitlab-eventsource-eventsource-svc
+                        name: ${webhookservice.metadata.name}
                         port:
                           number: 12000
                     path: /argo-events/${schema.spec.name}
