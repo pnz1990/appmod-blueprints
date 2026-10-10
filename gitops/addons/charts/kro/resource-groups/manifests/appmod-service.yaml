@@ -441,12 +441,13 @@ spec:
                     - name: service-name
                       value: ${schema.metadata.name}
                 - setWeight: 80
-                # Metrics analysis (metrics.enabled): pause, then run metrics-<name>
-                # against the canary. kro can't drop a list item, so without metrics
-                # (no metrics-<name> template) both steps render as 0s pauses.
+                # Metrics analysis (metrics.enabled with evaluationCriteria): pause, then
+                # run metrics-<name> against the canary. Without criteria there is no
+                # gate, as before #529 (a vector(1) no-op). kro can't drop a list item,
+                # so then both steps render as 0s pauses.
                 - pause:
-                    duration: '${schema.spec.metrics.enabled ? schema.spec.metrics.pause : "0s"}'
-                - '${schema.spec.metrics.enabled ? dyn({"analysis": {"templates": [{"templateName": "metrics-" + schema.metadata.name}], "args": [{"name": "service-name", "value": schema.metadata.name + "-preview"}]}}) : dyn({"pause": {"duration": "0s"}})}'
+                    duration: '${schema.spec.metrics.enabled && size(schema.spec.metrics.evaluationCriteria) > 0 ? schema.spec.metrics.pause : "0s"}'
+                - '${schema.spec.metrics.enabled && size(schema.spec.metrics.evaluationCriteria) > 0 ? dyn({"analysis": {"templates": [{"templateName": "metrics-" + schema.metadata.name}], "args": [{"name": "service-name", "value": schema.metadata.name + "-preview"}]}}) : dyn({"pause": {"duration": "0s"}})}'
           template:
             metadata:
               labels:
@@ -526,12 +527,13 @@ spec:
                     - name: service-name
                       value: ${schema.metadata.name}
                 - setWeight: 80
-                # Metrics analysis (metrics.enabled): pause, then run metrics-<name>
-                # against the canary. kro can't drop a list item, so without metrics
-                # (no metrics-<name> template) both steps render as 0s pauses.
+                # Metrics analysis (metrics.enabled with evaluationCriteria): pause, then
+                # run metrics-<name> against the canary. Without criteria there is no
+                # gate, as before #529 (a vector(1) no-op). kro can't drop a list item,
+                # so then both steps render as 0s pauses.
                 - pause:
-                    duration: '${schema.spec.metrics.enabled ? schema.spec.metrics.pause : "0s"}'
-                - '${schema.spec.metrics.enabled ? dyn({"analysis": {"templates": [{"templateName": "metrics-" + schema.metadata.name}], "args": [{"name": "service-name", "value": schema.metadata.name + "-preview"}]}}) : dyn({"pause": {"duration": "0s"}})}'
+                    duration: '${schema.spec.metrics.enabled && size(schema.spec.metrics.evaluationCriteria) > 0 ? schema.spec.metrics.pause : "0s"}'
+                - '${schema.spec.metrics.enabled && size(schema.spec.metrics.evaluationCriteria) > 0 ? dyn({"analysis": {"templates": [{"templateName": "metrics-" + schema.metadata.name}], "args": [{"name": "service-name", "value": schema.metadata.name + "-preview"}]}}) : dyn({"pause": {"duration": "0s"}})}'
           template:
             metadata:
               labels:
