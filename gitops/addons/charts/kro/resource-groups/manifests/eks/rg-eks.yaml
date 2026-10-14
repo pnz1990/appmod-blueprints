@@ -35,6 +35,12 @@ spec:
         idcInstanceArn: string | default=""
         idcRegion: string | default=""
         adminGroupId: string | default=""
+      # The EKS managed kro capability (kroCapabilityRole + kroCapability). On by
+      # default. "false" leaves the cluster without it so a self-managed kro can own
+      # the kro.run API there instead (the kind-kro-ack hub with hub.kroMode=upstream).
+      # The two kros cannot share one API server, so never run both on one cluster.
+      kroCapability:
+        enabled: string | default="true"
       k8sVersion: string
       adminRoleName: string
       # Optional second cluster-admin role. kro SimpleSchema cannot express a
@@ -2218,6 +2224,8 @@ spec:
               ]
             }
     - id: kroCapabilityRole
+      includeWhen:
+        - ${schema.spec.kroCapability.enabled == "true"}
       template:
         apiVersion: iam.services.k8s.aws/v1alpha1
         kind: Role
@@ -2325,6 +2333,8 @@ spec:
                 type: "cluster"
               policyARN: "arn:aws:eks::aws:cluster-access-policy/AmazonEKSSecretReaderPolicy"
     - id: kroCapability
+      includeWhen:
+        - ${schema.spec.kroCapability.enabled == "true"}
       readyWhen:
       - ${kroCapability.metadata.name != ""}
       template:

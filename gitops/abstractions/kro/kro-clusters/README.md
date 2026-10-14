@@ -65,6 +65,7 @@ Commit and push — ArgoCD will sync and KRO creates the cluster.
 | `domainName` | string | `""` | Domain name for ingress |
 | `resourcePrefix` | string | `peeks` | Prefix for resource naming |
 | `workloads` | string | `false` | Deploy workload applications |
+| `kroCapability.enabled` | string | `true` | Create the EKS managed kro capability. `false` only for a cluster that runs a self-managed kro instead (they cannot coexist) |
 | `cidr` | object | defaults | VPC/subnet CIDR configuration |
 | `gitops` | object | defaults | GitOps repo URLs and revisions |
 | `addons` | object | defaults | Addon enablement flags |

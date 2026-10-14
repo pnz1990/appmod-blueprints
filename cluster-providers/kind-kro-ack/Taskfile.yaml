@@ -44,6 +44,14 @@ vars:
     sh: yq '.hub.network.subnetIds[0] // ""' {{.CONFIG_FILE}}
   HUB_SUBNET_2:
     sh: yq '.hub.network.subnetIds[1] // ""' {{.CONFIG_FILE}}
+  # Which kro serves the hub's kro.run API (hub.kroMode):
+  #   managed  (default) — the EKS managed kro capability, created by the hub claim.
+  #   upstream — no managed capability (EksCluster kroCapability.enabled=false); a
+  #              self-managed upstream kro runs on the hub instead.
+  # Applied by hub:claim, i.e. when the hub is created. Changing it on a running hub
+  # is a migration (remove one kro, install the other), not a toggle.
+  HUB_KRO_MODE:
+    sh: yq '.hub.kroMode // "managed"' {{.CONFIG_FILE}}
   AWS_ACCOUNT_ID:
     sh: yq '.aws.accountId' {{.CONFIG_FILE}}
   AWS_REGION:
@@ -696,6 +704,10 @@ tasks:
           exit 1
         fi
         printf '{{.C_INFO}}  argoCdHubRoleArn = {{.CALLER_ROLE_ARN}}{{.C_RESET}}\n'
+        case "{{.HUB_KRO_MODE}}" in
+          managed|upstream) printf '{{.C_INFO}}  hub.kroMode = {{.HUB_KRO_MODE}}{{.C_RESET}}\n' ;;
+          *) printf '{{.C_ERR}}✗ hub.kroMode must be "managed" or "upstream", got "{{.HUB_KRO_MODE}}".{{.C_RESET}}\n'; exit 1 ;;
+        esac
       - kubectl create namespace {{.HUB_CLUSTER_NAME}} --dry-run=client -o yaml | kubectl apply -f -
       - |
         # When hub.network.vpcId is set (CDK pre-created VPC), use EksCluster (no VPC creation).
@@ -776,6 +788,12 @@ tasks:
             idcInstanceArn: {{.IDC_INSTANCE_ARN}}
             idcRegion: {{.IDC_REGION}}
             adminGroupId: {{.IDC_ADMIN_GROUP_ID}}
+        {{- if eq .HUB_KRO_MODE "upstream"}}
+          # hub.kroMode=upstream: no managed kro capability on the hub, so a self-managed
+          # kro can serve kro.run there instead. The two cannot share one API server.
+          kroCapability:
+            enabled: "false"
+        {{- end}}
         $NETWORK_BLOCK
           workloads: "false"
           gitops:

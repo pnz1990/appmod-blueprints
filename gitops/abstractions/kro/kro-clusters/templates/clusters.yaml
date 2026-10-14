@@ -102,6 +102,12 @@ spec:
   awsTags: {}
   {{- end }}
   workloads: {{ $cluster.workloads | default "false" | quote }}
+  # Per-cluster fleet-config value wins; else "true" (the EKS managed kro capability,
+  # which every spoke needs for its AppmodService RGDs). "false" is only for a cluster
+  # that runs a self-managed kro instead; the two cannot share one API server (see
+  # rg-eks.yaml). dig, not `default`, so an unquoted `enabled: false` is not read as unset.
+  kroCapability:
+    enabled: {{ dig "kroCapability" "enabled" "true" $cluster | toString | quote }}
   {{- if $cluster.subHostedZone | quote }}
   subHostedZone:
     {{- toYaml $cluster.subHostedZone | nindent 4 }}

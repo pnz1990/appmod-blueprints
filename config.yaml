@@ -37,6 +37,10 @@ hub:
       enabled: true
     ack:
       enabled: true
+  # kind-kro-ack only: which kro serves the hub's kro.run API. "managed" (default):
+  # the EKS managed kro capability. "upstream": no capability on the hub; a
+  # self-managed upstream kro runs there instead (the two cannot share one API server).
+  # kroMode: "managed"
 
 # AWS configuration
 aws:

@@ -60,6 +60,10 @@ spec:
         idcInstanceArn: string | default=""
         idcRegion: string | default=""
         adminGroupId: string | default=""
+      # Passed through to the nested EksCluster: "false" skips the EKS managed kro
+      # capability (a self-managed kro owns kro.run instead). See rg-eks.yaml.
+      kroCapability:
+        enabled: string | default="true"
       cidr:
         vpcCidr: string | default="10.0.0.0/16"
         publicSubnet1Cidr: string | default="10.0.1.0/24"
@@ -221,6 +225,8 @@ spec:
             idcInstanceArn: ${schema.spec.argocdCapability.idcInstanceArn}
             idcRegion: ${schema.spec.argocdCapability.idcRegion}
             adminGroupId: ${schema.spec.argocdCapability.adminGroupId}
+          kroCapability:
+            enabled: ${schema.spec.kroCapability.enabled}
           network:
             vpcID: ${vpc.status.vpcID}
             subnets:
