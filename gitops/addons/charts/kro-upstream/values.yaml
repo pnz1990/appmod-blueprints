@@ -1,0 +1,32 @@
+# Passed through to the upstream kro chart (dependency name `kro`). Mirrors
+# kardinal-promoter's hack/install-kro.sh: the Graph controller (GraphKind), RBAC by
+# aggregation, 8 Graph workers, client QPS/burst 300/500, and 768Mi/2Gi memory (kro
+# keeps every live Graph in memory, 3-6 MB each). The chart already passes
+# --controller-namespace/--controller-service-account, which kro requires with GraphKind.
+kro:
+  rbac:
+    # kro gets its own kro.run/CRD rights plus every ClusterRole labelled
+    # rbac.kro.run/aggregate-to-controller: "true": eks-capabilities-kro (the
+    # eks-capabilities-rbac chart, the same rules the managed capability is bound to)
+    # and Kardinal's Graph role.
+    mode: aggregation
+  config:
+    featureGates:
+      GraphKind: true
+    graphConcurrentReconciles: 8
+    clientQps: 300
+    clientBurst: 500
+  deployment:
+    resources:
+      requests:
+        memory: 768Mi
+      limits:
+        memory: 2Gi
+    # Same placement as the other platform controllers (see addons/configs/kro/values.yaml).
+    tolerations:
+      - key: CriticalAddonsOnly
+        operator: Exists
+    nodeSelector:
+      eks.amazonaws.com/compute-type: auto
+      kubernetes.io/os: linux
+      karpenter.sh/nodepool: system

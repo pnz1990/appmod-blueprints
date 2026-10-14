@@ -46,8 +46,9 @@ vars:
     sh: yq '.hub.network.subnetIds[1] // ""' {{.CONFIG_FILE}}
   # Which kro serves the hub's kro.run API (hub.kroMode):
   #   managed  (default) — the EKS managed kro capability, created by the hub claim.
-  #   upstream — no managed capability (EksCluster kroCapability.enabled=false); a
-  #              self-managed upstream kro runs on the hub instead.
+  #   upstream — no managed capability (EksCluster kroCapability.enabled=false); the
+  #              self-managed kro-upstream addon runs on the hub instead (label
+  #              enable_kro_upstream, set by secrets-manager:seed).
   # Applied by hub:claim, i.e. when the hub is created. Changing it on a running hub
   # is a migration (remove one kro, install the other), not a toggle.
   HUB_KRO_MODE:
@@ -790,7 +791,8 @@ tasks:
             adminGroupId: {{.IDC_ADMIN_GROUP_ID}}
         {{- if eq .HUB_KRO_MODE "upstream"}}
           # hub.kroMode=upstream: no managed kro capability on the hub, so a self-managed
-          # kro can serve kro.run there instead. The two cannot share one API server.
+          # kro can serve kro.run there instead (the kro-upstream addon, which
+          # secrets-manager:seed enables on the hub). The two cannot share one API server.
           kroCapability:
             enabled: "false"
         {{- end}}
@@ -1097,11 +1099,16 @@ tasks:
         VPC_JSON=$(jq -n --arg id "{{.VPC_ID}}" --argjson subnet_ids "$PRIVATE_SUBNETS_JSON" \
           --arg cluster_security_group_id "{{.CLUSTER_SG}}" \
           '{id:$id, subnet_ids:$subnet_ids, cluster_security_group_id:$cluster_security_group_id}' | jq -c .)
+        # `addons` becomes labels on the hub cluster secret (fleet-secret ExternalSecret).
+        # hub.kroMode=upstream created the hub without the managed kro capability
+        # (hub:claim), so label it for the kro-upstream addon here: one switch drives both,
+        # and the two kros never land on the hub together.
+        HUB_ADDON_LABELS='{"provider":"kro-ack"{{if eq .HUB_KRO_MODE "upstream"}},"enable_kro_upstream":"true"{{end}}}'
         SECRET_VALUE=$(jq -n \
           --arg metadata '{"addonsRepoURL":"{{.REPO_URL}}","addonsRepoRevision":"{{.REPO_REVISION}}","addonsRepoBasepath":"{{.REPO_BASEPATH}}","addons_repo_url":"{{.AGENTIC_REPO_URL}}","addons_repo_revision":"{{.AGENTIC_REPO_REVISION}}","fleetRepoURL":"{{.FLEET_REPO_URL}}","fleetRepoRevision":"{{.FLEET_REPO_REVISION}}","fleetRepoBasepath":"{{.FLEET_REPO_BASEPATH}}","aws_region":"{{.AWS_REGION}}","aws_account_id":"{{.AWS_ACCOUNT_ID}}","aws_cluster_name":"{{.HUB_CLUSTER_NAME}}","aws_cluster_arn":"{{.CLUSTER_ARN}}","aws_vpc_id":"{{.VPC_ID}}","aws_private_subnet_ids":"{{.PRIVATE_SUBNET_IDS}}","aws_cluster_security_group_id":"{{.CLUSTER_SG}}","alb_controller_mode":"oss","ingress_domain_name":"'"$RUNTIME_DOMAIN"'","ingress_name":"{{.HUB_CLUSTER_NAME}}-platform","ingress_security_groups":"{{.INGRESS_SECURITY_GROUPS}}","resource_prefix":"{{.RESOURCE_PREFIX}}","insecure":"{{.INSECURE}}","certificate_arn":"{{.INGRESS_CERT_ARN}}","admin_role_name":"{{.ADMIN_ROLE_NAME}}","gitlab_domain_name":"'"$GIT_DOMAIN"'","git_token":"{{.USER_PASSWORD}}","aws_argocd_url":"'"$ARGOCD_FINAL"'"}' \
           --arg config '{"tlsClientConfig":{"insecure":false}}' \
           --arg server '{{.CLUSTER_ARN}}' \
-          --arg addons '{"provider":"kro-ack"}' \
+          --arg addons "$HUB_ADDON_LABELS" \
           --arg vpc "$VPC_JSON" \
           '{metadata: $metadata, config: $config, server: $server, addons: $addons, vpc: $vpc}')
         # Re-merge preserved overlay wiring into the metadata (only keys that are non-empty),
@@ -1378,7 +1385,7 @@ tasks:
       # and deleted LAST, after the spoke clusters (step 8).
       # NOTE: keep in sync with the SKIP list in step 7 and the explicit reverse-order
       # list in step 8 — adding/removing an ACK controller means updating all three.
-      INFRA_STACK: "argocd crossplane crossplane-base kro kro-manifests kro-manifests-hub ack-iam ack-eks ack-ec2 ack-ecr ack-s3 ack-dynamodb ack-efs"
+      INFRA_STACK: "argocd crossplane crossplane-base kro kro-upstream kro-manifests kro-manifests-hub ack-iam ack-eks ack-ec2 ack-ecr ack-s3 ack-dynamodb ack-efs"
       KC: "KUBECONFIG={{.ROOT_DIR}}/private/hub-kubeconfig kubectl"
     cmds:
       # Best-effort hub kubeconfig — if the hub EKS is already gone, every kubectl
@@ -1522,7 +1529,7 @@ tasks:
         ignore_error: true
       # 8. Delete the INFRA-PROVISIONING STACK LAST, reverse order (consumers -> controllers).
       - cmd: |
-          for ADDON in kro-manifests-hub kro-manifests kro ack-efs ack-dynamodb ack-s3 ack-ecr ack-ec2 ack-eks ack-iam crossplane-base crossplane; do
+          for ADDON in kro-manifests-hub kro-manifests kro kro-upstream ack-efs ack-dynamodb ack-s3 ack-ecr ack-ec2 ack-eks ack-iam crossplane-base crossplane; do
             if {{.KC}} get applicationset $ADDON -n argocd >/dev/null 2>&1; then
               echo "Deleting $ADDON..."
               {{.KC}} patch applicationset $ADDON -n argocd --type merge -p '{"spec":{"syncPolicy":{"preserveResourcesOnDeletion":false}}}' 2>&1 || true

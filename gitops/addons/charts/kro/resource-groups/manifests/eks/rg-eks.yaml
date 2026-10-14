@@ -37,7 +37,8 @@ spec:
         adminGroupId: string | default=""
       # The EKS managed kro capability (kroCapabilityRole + kroCapability). On by
       # default. "false" leaves the cluster without it so a self-managed kro can own
-      # the kro.run API there instead (the kind-kro-ack hub with hub.kroMode=upstream).
+      # the kro.run API there instead (the kind-kro-ack hub with hub.kroMode=upstream,
+      # which runs the kro-upstream addon; see gitops/addons/registry/platform.yaml).
       # The two kros cannot share one API server, so never run both on one cluster.
       kroCapability:
         enabled: string | default="true"

@@ -19,6 +19,11 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
   name: eks-capabilities-kro
+  labels:
+    # Also aggregated into a self-managed upstream kro installed with
+    # rbac.mode=aggregation (the kro-upstream addon), so it gets the same rights as
+    # the managed capability. No effect where no such kro runs.
+    rbac.kro.run/aggregate-to-controller: "true"
 rules:
 # Core Kubernetes resources
 - apiGroups: [""]

@@ -1,0 +1,15 @@
+apiVersion: v2
+name: kro-upstream
+description: >-
+  Self-managed upstream kro with the Graph API (the GraphKind feature gate) as a
+  single platform addon: wraps the upstream kro chart as a dependency (values
+  nested under the `kro:` key). Only for a cluster WITHOUT the EKS managed kro
+  capability; see the kro-upstream entry in addons/registry/platform.yaml.
+type: application
+version: 0.1.0
+dependencies:
+  - name: kro
+    # Pre-release: the first kro that serves the Graph API (kro.run/v1alpha1 Graph),
+    # which Kardinal requires. Move to 0.10.0 final once it ships.
+    version: '0.10.0-rc.0'
+    repository: oci://registry.k8s.io/kro/charts

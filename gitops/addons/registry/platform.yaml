@@ -179,6 +179,65 @@ kro:
         operator: In
         values: ['true']
 
+# Self-managed UPSTREAM kro with the Graph API (kro.run/v1alpha1 Graph, GraphKind feature
+# gate), which Kardinal needs and the EKS managed kro capability does not serve yet.
+# Opt-in and off by default: only a cluster labelled enable_kro_upstream gets it. On the
+# kind-kro-ack hub the label comes from hub.kroMode=upstream (secrets-manager:seed), the
+# same switch that creates the hub WITHOUT the managed capability. Do not combine with the
+# `kro` entry above (same release name and namespace).
+#
+# REQUIRES the cluster's managed kro capability to be OFF (EksCluster
+# kroCapability.enabled: "false"). The two cannot share one API server:
+#   - this chart ships resourcegraphdefinitions.kro.run and graphrevisions.internal.kro.run
+#     (plus graphs.kro.run). Argo CD would apply them over the capability's CRDs and
+#     replace their schema with v0.10's;
+#   - upstream kro always runs its RGD, GraphRevision and dynamic instance controllers
+#     (GraphKind only adds the Graph controller) and reconciles EVERY RGD (no selector or
+#     class), so both kros would issue GraphRevisions and generated CRDs for the same RGDs;
+#   - both use the finalizer kro.run/finalizer and the SSA field manager kro.run/applyset,
+#     so they silently overwrite each other's objects and child resources (revision churn,
+#     flapping CRDs, double applies, deletion races);
+#   - leader election does not separate them: upstream's lease lives in its own namespace.
+# For the same reason never run kardinal-promoter's hack/install-kro.sh (force-applies the
+# kro CRDs) or its uninstall steps (delete resourcegraphdefinitions.kro.run) on these clusters.
+#
+# RBAC (rbac.mode=aggregation, as hack/install-kro.sh): beyond its own kro.run/CRD rights kro
+# gets what ClusterRoles labelled rbac.kro.run/aggregate-to-controller grant. The workshop
+# RGDs' kinds come from eks-capabilities-kro, so the cluster also needs eks-capabilities-rbac
+# (on the hub: eks-capabilities-rbac-hub, enable_kro_manifests_hub).
+#
+# Wave -3: before every app that applies RGDs (kro-manifests-hub and kro-clusters-rgds-hub
+# at -2, kro-ray-rgd-hub at 6, kro-amp-incident-rgd-hub at 8). ServerSideApply for the CRDs.
+kro-upstream:
+  namespace: kro-system
+  path: '{{.metadata.annotations.addonsRepoBasepath}}addons/charts/kro-upstream'
+  # Release "kro": Deployment and ServiceAccount "kro" in kro-system, the names
+  # hack/install-kro.sh produces and `kardinal doctor` / quickstart look for.
+  releaseName: kro
+  annotationsAppSet:
+    argocd.argoproj.io/sync-wave: '-3'
+  selector:
+    matchExpressions:
+      - key: enable_kro_upstream
+        operator: In
+        values: ['true']
+  # Replicates the inherited default syncPolicy (a per-addon syncPolicy fully overrides
+  # it) and adds ServerSideApply for the kro CRDs.
+  syncPolicy:
+    automated:
+      selfHeal: true
+      allowEmpty: true
+      prune: false
+    retry:
+      limit: -1
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 10m
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+
 kro-manifests:
   namespace: kro
   type: manifest

@@ -1,0 +1,6 @@
+dependencies:
+- name: kro
+  repository: oci://registry.k8s.io/kro/charts
+  version: 0.10.0-rc.0
+digest: sha256:47fee59221e59143e98fa96d854c07ca92c897c00e9558874be16428db0648ed
+generated: "2026-10-14T22:58:30.339770512Z"

@@ -94,7 +94,7 @@ When `type: manifest` is set, the Helm rendering block is skipped entirely -- Ar
 | Wave | Category | Addons |
 |------|----------|--------|
 | -5 | Multi-account | multi-acct |
-| -3 | Abstractions | kro |
+| -3 | Abstractions | kro, kro-upstream |
 | -2 | KRO Resource Groups | kro-manifests, kro-manifests-hub |
 | -1 | Controllers | external-secrets, ACK controllers (iam, eks, ec2, ecr, s3, dynamodb, efs) |
 | 0 | Core | argocd, metrics-server |

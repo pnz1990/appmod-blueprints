@@ -92,6 +92,10 @@
 #                     kind-kro-ack only; kind-crossplane rejects it (see issue #833).
 #                     NOT required for CloudFront exposure.
 #   HUB_SUBNET_IDS    (default: from CDK bootstrap env) — private subnets for that VPC
+#   HUB_KRO_MODE      (default: upstream) — hub.kroMode: "upstream" = the hub runs the
+#                     self-managed kro-upstream addon (Graph API, needed by Kardinal)
+#                     instead of the EKS managed kro capability; "managed" = the capability.
+#                     kind-kro-ack only. Spokes always keep the managed capability.
 #
 
 set -euo pipefail
@@ -153,6 +157,7 @@ CLUSTER_PROVIDER="${CLUSTER_PROVIDER:-kind-kro-ack}"
 K8S_VERSION="${K8S_VERSION:-1.35}"
 VPC_CIDR="${VPC_CIDR:-10.1.0.0/16}"
 FORCE="${FORCE:-false}"
+HUB_KRO_MODE="${HUB_KRO_MODE:-upstream}"
 
 # --- Idempotency -----------------------------------------------------------
 if [ "$FORCE" != "true" ] && [ -f "$OUTPUT_FILE" ] && yq '.' "$OUTPUT_FILE" >/dev/null 2>&1; then
@@ -312,6 +317,7 @@ if [ -n "${HUB_VPC_ID:-}" ] && [ -n "${HUB_SUBNET_IDS:-}" ]; then
   printf '  adminRoleName: "%s"\n' "$ADMIN_ROLE_NAME"   >> "$OUTPUT_FILE"
   printf '  kubernetesVersion: "%s"\n' "$K8S_VERSION"  >> "$OUTPUT_FILE"
   printf '  autoMode: true\n'                          >> "$OUTPUT_FILE"
+  printf '  kroMode: "%s"\n' "$HUB_KRO_MODE"           >> "$OUTPUT_FILE"
   printf '  network:\n'                                >> "$OUTPUT_FILE"
   printf '    vpcId: "%s"\n' "$HUB_VPC_ID"             >> "$OUTPUT_FILE"
   printf '    subnetIds:\n'                            >> "$OUTPUT_FILE"
@@ -327,6 +333,7 @@ else
   printf '  kubernetesVersion: "%s"\n' "$K8S_VERSION"  >> "$OUTPUT_FILE"
   printf '  vpcCidr: "%s"\n'      "$VPC_CIDR"          >> "$OUTPUT_FILE"
   printf '  autoMode: true\n'                          >> "$OUTPUT_FILE"
+  printf '  kroMode: "%s"\n' "$HUB_KRO_MODE"           >> "$OUTPUT_FILE"
 fi
 printf 'modelS3Bucket:\n'                              >> "$OUTPUT_FILE"
 printf '  enabled: false\n'                            >> "$OUTPUT_FILE"
