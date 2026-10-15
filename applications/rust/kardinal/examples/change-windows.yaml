@@ -1,0 +1,28 @@
+# ChangeWindows are cluster-scoped, so they belong to the platform team, not to an app's
+# chart (the rust-kardinal Application may create namespaced kinds only). A window blocks
+# nothing by itself: a gate references it, and a missing window blocks that gate (fail
+# closed). Apply with: kubectl --context <prefix>-hub apply -f change-windows.yaml
+#
+# rust-prod-hours: promotions to rust prod are allowed Monday to Friday, 08:00-18:00 UTC
+# (the gate prod-change-window in ../chart/values.yaml, off by default).
+apiVersion: kardinal.io/v1alpha1
+kind: ChangeWindow
+metadata:
+  name: rust-prod-hours
+spec:
+  type: recurring
+  schedule:
+    timezone: UTC
+    allowedDays: [Mon, Tue, Wed, Thu, Fri]
+    allowedHours: "08:00-18:00"
+---
+# peeks-holiday-freeze: a one-off blackout, read by the org gate in org-gates.yaml.
+apiVersion: kardinal.io/v1alpha1
+kind: ChangeWindow
+metadata:
+  name: peeks-holiday-freeze
+spec:
+  type: blackout
+  start: "2026-12-21T00:00:00Z"
+  end: "2027-01-04T00:00:00Z"
+  reason: "Year-end freeze"

@@ -1,0 +1,23 @@
+# An org gate: a PolicyGate in the controller's org policy namespace (platform-policies,
+# the --policy-namespaces default). It is injected into EVERY Pipeline that has an
+# environment of that name (java's prod too), and a team cannot remove or weaken it; only
+# `kardinal override` passes it, time-limited and audited. Team gates (the app chart's
+# `gates`) are added next to it. Apply with cluster-admin:
+#   kubectl --context <prefix>-hub apply -f change-windows.yaml -f org-gates.yaml
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: platform-policies
+---
+apiVersion: kardinal.io/v1alpha1
+kind: PolicyGate
+metadata:
+  name: org-holiday-freeze
+  namespace: platform-policies
+  labels:
+    kardinal.io/scope: org
+    kardinal.io/applies-to: prod
+spec:
+  expression: '!changewindow.isBlocked("peeks-holiday-freeze")'
+  message: "Org policy: no prod deploys during the year-end freeze"
+  recheckInterval: 5m

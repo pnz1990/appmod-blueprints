@@ -1,0 +1,33 @@
+# NotificationHook: Kardinal POSTs promotion events (Bundle Verified/Failed/Superseded/
+# RollbackStarted/RolledBack, PolicyGate Blocked/Unblocked, PromotionStep Failed/PROpened/
+# WaitingForApproval) to a webhook: json, cloudevents, slack, teams or a template
+# (docs: notifications.md). The URL is in notifications.url, or, when it carries a token
+# (Slack, Teams), in a Secret labelled kardinal.io/referenceable=true (key url, optionally
+# authorization) named by notifications.secretName.
+{{- with .Values.notifications }}
+{{- if .enabled }}
+apiVersion: kardinal.io/v1alpha1
+kind: NotificationHook
+metadata:
+  name: {{ .name }}
+  namespace: {{ $.Release.Namespace }}
+spec:
+  webhook:
+    {{- if .url }}
+    url: {{ .url }}
+    {{- end }}
+    {{- with .secretName }}
+    secretRef:
+      name: {{ . }}
+    {{- end }}
+    {{- if and (not .url) (not .secretName) }}
+    {{- fail "notifications.url or notifications.secretName is required" }}
+    {{- end }}
+  format: {{ .format }}
+  {{- with .pipelineSelector }}
+  pipelineSelector: {{ . }}
+  {{- end }}
+  events:
+    {{- toYaml .events | nindent 4 }}
+{{- end }}
+{{- end }}

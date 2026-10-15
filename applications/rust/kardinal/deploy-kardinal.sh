@@ -3,10 +3,12 @@
 #
 # Applies ONE Argo CD Application, rust-kardinal (argocd-application.yaml), which syncs
 # ./chart from the GitLab rust repo into namespace rust-app on the hub: Pipeline rust (dev
-# automatic, prod after its gates), the rust PolicyGates and the git Secret. From then on the
-# configuration is GitOps: change it in git. Kardinal itself is a platform addon
-# (enable_kardinal); it needs no IAM role or Pod Identity here, since it only talks to GitLab
-# and to the hub's Argo CD Applications.
+# automatic with a bake and automatic rollback, prod through a GitLab merge request after a
+# dev soak gate), the rust PolicyGates and the git Secret. From then on the configuration
+# is GitOps: change it in git (chart/values.yaml lists the optional features: gates,
+# MetricChecks, a NotificationHook, an ECR Subscription, per-team CI identity). Kardinal
+# itself is a platform addon (enable_kardinal); it needs no IAM role or Pod Identity here,
+# since it only talks to GitLab and to the hub's Argo CD Applications.
 #
 # Then turn on kardinal.enabled in the rust CICDPipeline (rust-cicd repo,
 # manifests/kro-cicd-pipeline.yaml), so CI hands each build to Kardinal as a Bundle instead
@@ -45,6 +47,7 @@ if [ "$READY" != "True" ]; then
   echo "Pipeline rust is not Ready yet: kubectl describe pipelines.kardinal.io rust -n rust-app" >&2
   exit 1
 fi
-echo "Done. Kardinal now promotes rust: each version (Bundle) goes to dev, then waits for prod's gates."
+echo "Done. Kardinal now promotes rust: each version (Bundle) goes to dev and must stay healthy there for"
+echo "2 minutes (else it is rolled back); then Kardinal opens a GitLab merge request for prod: merge it to promote."
 echo "Next: set kardinal.enabled: \"true\" in rust-cicd's manifests/kro-cicd-pipeline.yaml, so CI creates the Bundles."
-echo "Watch it with: kardinal get pipelines -n rust-app; approve prod with: kardinal approve rust prod -n rust-app"
+echo "Watch it with: kardinal get pipelines -n rust-app; what prod waits for: kardinal why rust prod -n rust-app"

@@ -1,0 +1,16 @@
+# The enabled entries of .Values.metricChecks, as MetricChecks of this namespace. A gate reads
+# one as metrics["<name>"] (.result "Pass"/"Fail"/"Stale", .value). spec is the MetricCheck
+# spec as is (docs: metric-checks.md); its bundle placeholders (perPromotion: bundle.version,
+# bundle.imageTag, ...) are Kardinal's: values are not rendered by Helm.
+{{- range $name, $m := .Values.metricChecks }}
+{{- if $m.enabled }}
+---
+apiVersion: kardinal.io/v1alpha1
+kind: MetricCheck
+metadata:
+  name: {{ $name }}
+  namespace: {{ $.Release.Namespace }}
+spec:
+  {{- toYaml (required (printf "metricChecks.%s.spec is required" $name) $m.spec) | nindent 2 }}
+{{- end }}
+{{- end }}

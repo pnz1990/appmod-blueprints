@@ -1,8 +1,9 @@
 # One Pipeline per application. A Bundle (a version: the image CI built) promotes through
 # dev, then prod. Each environment's PromotionStep clones the GitLab repo, sets the image in
-# deployment/<env>/application.yaml, commits and pushes to main, asks Argo CD to sync
-# (the argocd.argoproj.io/refresh annotation) and waits until the environment's Application
-# is Healthy and Synced at that commit.
+# deployment/<env>/application.yaml, commits, pushes to main (approval: auto) or opens a
+# merge request (approval: pr-review), asks Argo CD to sync (the argocd.argoproj.io/refresh
+# annotation) and waits until the environment's Application is Healthy and Synced at that
+# commit, then for the bake window, if any.
 #
 # The image goes to ONE path: spec.image of the kro AppmodService (deployment/templates/kro),
 # the full image reference. Kardinal fails a step whose path does not exist, so a KubeVela
@@ -18,12 +19,15 @@ spec:
     branch: main
     secretRef:
       name: gitlab-git
+  {{- with .Values.historyLimit }}
+  historyLimit: {{ . }}
+  {{- end }}
   environments:
     {{- range $env := list "dev" "prod" }}
     {{- $e := index $.Values.environments $env }}
     - name: {{ $env }}
       path: deployment/{{ $env }}
-      approval: auto
+      approval: {{ $e.approval | default "auto" }}
       update:
         strategy: yaml
         yaml:
@@ -36,5 +40,25 @@ spec:
         argocd:
           name: {{ $e.argocdApp | default (printf "%s-%s-cd" $.Values.app $env) }}
           namespace: argocd
-        timeout: {{ $.Values.healthTimeout }}
+        timeout: {{ $e.healthTimeout | default $.Values.healthTimeout }}
+      {{- if and $e.bake (gt (int ($e.bake.minutes | default 0)) 0) }}
+      bake:
+        minutes: {{ $e.bake.minutes }}
+        policy: {{ $e.bake.policy | default "reset-on-alarm" }}
+        {{- with $e.bake.maxDuration }}
+        maxDuration: {{ . }}
+        {{- end }}
+      {{- end }}
+      {{- with $e.onHealthFailure }}
+      onHealthFailure: {{ . }}
+      {{- end }}
+      {{- if eq ($e.approval | default "auto") "pr-review" }}
+      {{- with $e.waitForMergeTimeout }}
+      waitForMergeTimeout: {{ . }}
+      {{- end }}
+      {{- with $e.pr }}
+      pr:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- end }}
     {{- end }}

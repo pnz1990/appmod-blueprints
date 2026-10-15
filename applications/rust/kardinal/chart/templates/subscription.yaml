@@ -1,0 +1,62 @@
+# Subscription on the ECR repository (subscription.enabled): Kardinal polls it and creates a
+# Bundle for each new image. Its pull credential is a dockerconfigjson Secret (ECR user AWS,
+# a 12 h token) kept fresh by External Secrets: the ECRAuthorizationToken generator assumes
+# subscription.ecr.roleArn with the External Secrets controller's identity. The Secret is
+# labelled kardinal.io/referenceable so a Subscription may use it.
+{{- with .Values.subscription }}
+{{- if .enabled }}
+apiVersion: generators.external-secrets.io/v1alpha1
+kind: ECRAuthorizationToken
+metadata:
+  name: {{ .name }}-token
+  namespace: {{ $.Release.Namespace }}
+spec:
+  region: {{ .ecr.region }}
+  role: {{ required "subscription.ecr.roleArn is required (../subscription-ecr-role.sh)" .ecr.roleArn }}
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: {{ .name }}-pull
+  namespace: {{ $.Release.Namespace }}
+spec:
+  refreshInterval: 6h
+  target:
+    name: {{ .name }}-pull
+    creationPolicy: Owner
+    template:
+      type: kubernetes.io/dockerconfigjson
+      metadata:
+        labels:
+          kardinal.io/referenceable: "true"
+      data:
+        .dockerconfigjson: {{`'{"auths":{"{{ .proxy_endpoint | trimPrefix "https://" }}":{"username":"{{ .username }}","password":"{{ .password }}","auth":"{{ printf "%s:%s" .username .password | b64enc }}"}}}'`}}
+  dataFrom:
+    - sourceRef:
+        generatorRef:
+          apiVersion: generators.external-secrets.io/v1alpha1
+          kind: ECRAuthorizationToken
+          name: {{ .name }}-token
+---
+apiVersion: kardinal.io/v1alpha1
+kind: Subscription
+metadata:
+  name: {{ .name }}
+  namespace: {{ $.Release.Namespace }}
+spec:
+  type: image
+  pipeline: {{ $.Values.app }}
+  image:
+    registry: {{ required "subscription.registry is required (<account>.dkr.ecr.<region>.amazonaws.com/<prefix>/<app>)" .registry }}
+    {{- with .tagFilter }}
+    tagFilter: {{ . | quote }}
+    {{- end }}
+    strategy: {{ .strategy }}
+    {{- with .discoveryLimit }}
+    discoveryLimit: {{ . }}
+    {{- end }}
+    interval: {{ .interval }}
+    secretRef:
+      name: {{ .name }}-pull
+{{- end }}
+{{- end }}

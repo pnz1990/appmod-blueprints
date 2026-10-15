@@ -12,27 +12,164 @@ gitToken:
   property: git_token
 # How long a promoted commit may take to be synced and Healthy (the canary and its analysis
 # gates on the spoke count: the AppmodService turns Ready only once its Rollout is Healthy).
-# An environment can set its own healthTimeout.
+# When it expires, the environment's onHealthFailure applies.
 healthTimeout: 20m
-# The environments, in promotion order. argocdApp: the Argo CD Application the CICDPipeline's
-# Backstage template created (rust-cicd repo); Kardinal checks it (health.type argocd):
-# Healthy, Synced, and synced at the promoted commit. Default <app>-<env>-cd.
+# Finished Bundles kept per Pipeline (kardinal rollback --to can only pick a kept one).
+historyLimit: 50
+
+# The environments, in promotion order (docs: reference/pipeline.md).
+#   argocdApp        the Argo CD Application the CICDPipeline's Backstage template created
+#                    (rust-cicd repo); Kardinal checks it (health.type argocd): Healthy,
+#                    Synced, and synced at the promoted commit. Default <app>-<env>-cd.
+#   approval         auto: push to main. pr-review: open a GitLab merge request with the
+#                    evidence (provenance, gates, upstream health) and the kardinal/gates
+#                    commit status; merging it promotes.
+#   healthTimeout    this environment's timeout (default .healthTimeout).
+#   bake             minutes: the environment must stay healthy that long, without a break,
+#                    before it is Verified; policy reset-on-alarm (an unhealthy check restarts
+#                    the window) or fail-on-alarm (it applies onHealthFailure at once).
+#   onHealthFailure  none (the step fails), abort (stops for a person) or rollback (a
+#                    rollback Bundle restores the version Verified there before).
+#   waitForMergeTimeout, pr   pr-review only: give up on an unmerged MR after this; MR labels,
+#                    assignees, reviewers, title/body templates, merge.auto.
 environments:
   dev:
     argocdApp: ""
+    approval: auto
+    healthTimeout: 10m
+    # Each version stays healthy in dev for 2 minutes before it may go on; a version that
+    # fails there (the canary's analysis aborts it, or it never turns healthy) is rolled back
+    # to the one dev ran before, by a rollback Bundle, and never reaches prod.
+    bake:
+      minutes: 2
+      policy: reset-on-alarm
+    onHealthFailure: rollback
   prod:
     argocdApp: ""
+    # prod is promoted by a merge request: a person reviews the evidence and merges it.
+    approval: pr-review
+    healthTimeout: ""
+    onHealthFailure: ""
+    waitForMergeTimeout: ""
+    pr:
+      labels:
+        - "{{ .Pipeline }}"
+
 # PolicyGates of this namespace (scope team), each holding the environment named in
 # appliesTo until its CEL expression is true (docs: policy-gates.md, reference/cel-context.md).
 # A version gets the gates that exist when it starts promoting. message and expression are
 # rendered with tpl, so they may use {{ .Values.app }} and {{ .Release.Namespace }}.
+# Org gates (namespace platform-policies) apply on top of these: see ../examples/.
 gates:
-  # prod needs a person: kardinal approve <app> prod -n <app>-app (or the UI, TokenReview
-  # sign-in). Replaces Kargo's manual Promote on the prod Stage.
+  # One person approves: kardinal approve <app> prod -n <app>-app (or the UI). Off: with
+  # approval pr-review the merge request is prod's human gate.
   prod-approval:
-    enabled: true
+    enabled: false
     appliesTo: prod
     expression: "true"
     message: "prod needs an approval: kardinal approve {{ .Values.app }} prod -n {{ .Release.Namespace }}"
     approval:
       required: 1
+  # prod waits until the version has run in dev for a while (Kargo's requiredSoakTime).
+  prod-dev-soak:
+    enabled: true
+    appliesTo: prod
+    expression: "upstream.dev.soakMinutes >= 2"
+    message: "prod waits until the version has run in dev for 2 minutes"
+    recheckInterval: 1m
+  # No prod deploys on Saturdays and Sundays (UTC).
+  prod-no-weekends:
+    enabled: false
+    appliesTo: prod
+    expression: "!schedule.isWeekend"
+    message: "no prod deploys on weekends"
+  # prod only inside the ChangeWindow named here (cluster-scoped, owned by the platform team;
+  # example in ../examples/change-windows.yaml). A missing window blocks (fail closed).
+  prod-change-window:
+    enabled: false
+    appliesTo: prod
+    expression: 'changewindow.isAllowed("rust-prod-hours")'
+    message: "prod deploys only inside the ChangeWindow rust-prod-hours"
+    recheckInterval: 1m
+  # prod only while dev answers (the MetricCheck dev-front-page below).
+  prod-dev-healthy:
+    enabled: false
+    appliesTo: prod
+    expression: 'metrics["dev-front-page"].result == "Pass"'
+    message: "prod waits until dev serves its front page (MetricCheck dev-front-page)"
+    recheckInterval: 1m
+
+# MetricChecks of this namespace, read by gates as metrics["<name>"] (docs: metric-checks.md).
+# spec is the MetricCheck spec. Providers: prometheus, datadog, cloudwatch, newrelic, web.
+metricChecks:
+  # dev's front page through its Ingress answers 200 with a JSON list of products. url:
+  # http://<dev ALB>/rust-app/collection/FRONT_PAGE (the deploy script finds it with
+  # KARDINAL_LAB=1). Loopback and metadata addresses are refused; private ones are allowed.
+  dev-front-page:
+    enabled: false
+    spec:
+      provider: web
+      web:
+        url: ""
+        jsonPath: "{[0].partition_key}"
+        timeoutSeconds: 10
+      threshold:
+        operator: eq
+        text: PRODUCT
+      interval: 1m
+
+# NotificationHook: Kardinal POSTs promotion events to a webhook (docs: notifications.md).
+notifications:
+  enabled: false
+  name: rust-events
+  # http(s) URL of the receiver; or secretName: a Secret of this namespace, labelled
+  # kardinal.io/referenceable=true, with key url (and optionally authorization), for URLs that
+  # carry a token (Slack, Teams).
+  url: ""
+  secretName: ""
+  # json, cloudevents, slack, teams or template
+  format: cloudevents
+  pipelineSelector: ""
+  events:
+    - Bundle.Verified
+    - Bundle.Failed
+    - Bundle.Superseded
+    - Bundle.RollbackStarted
+    - Bundle.RolledBack
+    - PolicyGate.Blocked
+    - PolicyGate.Unblocked
+    - PromotionStep.Failed
+    - PromotionStep.PROpened
+    - PromotionStep.WaitingForApproval
+
+# Subscription: Kardinal polls the ECR repository and creates a Bundle for each new image
+# (docs: subscription.md), instead of CI creating it. Use one trigger per Pipeline: with
+# both, every build is promoted twice (CI's Bundle, then the Subscription's, which
+# supersedes it). Kardinal makes no AWS calls: an External Secrets ECRAuthorizationToken
+# generator mints the pull token (12 h; refreshed every 6 h) by assuming ecr.roleArn, a role
+# that trusts the External Secrets controller's role (../subscription-ecr-role.sh).
+subscription:
+  enabled: false
+  name: rust-ecr
+  # <account>.dkr.ecr.<region>.amazonaws.com/<prefix>/rust (no tag)
+  registry: ""
+  # NewestBuild: the most recently built image among at most discoveryLimit tags (it reads
+  # every tag's image config on every poll, and fails when more tags remain). SemVer and
+  # Lexical: the highest tag, one request per poll; they need ordered tags.
+  strategy: NewestBuild
+  tagFilter: '^[0-9a-f]{40}$'
+  discoveryLimit: 50
+  interval: 2m
+  ecr:
+    region: us-west-2
+    roleArn: ""
+
+# Per-team CI identity for the Bundle API instead of the static token (docs:
+# ci-integration.md, Kubernetes tokens): binds the CI ServiceAccount to Kardinal's promoter
+# ClusterRole in this namespace. Needs the kardinal addon's bundleAPI.tokenReview and the
+# CICDPipeline's kardinal.auth: "tokenreview".
+ciTokenReview:
+  enabled: false
+  clusterRole: kardinal-promoter-promoter
+  serviceAccount: ""   # default <app>-cicd-sa
+  namespace: ""        # default team-<app>

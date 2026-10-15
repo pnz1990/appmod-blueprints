@@ -1,0 +1,24 @@
+# Per-team CI identity for the Bundle API (ciTokenReview.enabled): the CI ServiceAccount may
+# create Bundles of this namespace's Pipelines (Kardinal's promoter role), so CI can
+# authenticate with its own projected token (audience kardinal-promoter) instead of the
+# controller-wide static token. Needs the kardinal addon's bundleAPI.tokenReview and the
+# CICDPipeline's kardinal.auth "tokenreview". The Bundle then records the CI ServiceAccount
+# as its verified creator (kardinal.io/created-by), which an approval gate's excludeAuthor
+# and the bundle.createdBy CEL attribute read.
+{{- with .Values.ciTokenReview }}
+{{- if .enabled }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ $.Values.app }}-ci-bundle-creator
+  namespace: {{ $.Release.Namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ .clusterRole }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ .serviceAccount | default (printf "%s-cicd-sa" $.Values.app) }}
+    namespace: {{ .namespace | default (printf "team-%s" $.Values.app) }}
+{{- end }}
+{{- end }}
