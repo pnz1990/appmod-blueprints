@@ -31,3 +31,7 @@ enabledAddons:
   # provided by this overlay's overrides.yaml (path workshop/aiops-agent/chart).
   # Depends on KubeVela + the OAP layer above (late sync-wave).
   aiops_agent: true
+  # Kardinal replaced Kargo. A stack upgraded to this branch can still read its base
+  # enabled-addons from a fleet repo that enables kargo (fleetRepoRevision left at main);
+  # this keeps Kargo off there. The kargo addon itself no longer exists here.
+  kargo: false
