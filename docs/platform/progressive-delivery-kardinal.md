@@ -8,11 +8,18 @@ canary and its quality gates on the spokes; Kardinal decides **which version** g
 - [Architecture](#architecture)
 - [Why upstream kro on the hub, and the way back](#why-upstream-kro-on-the-hub-and-the-way-back)
 - [How a promotion works](#how-a-promotion-works)
+- [How CI hands a build to Kardinal: `kardinal.auth` and `kardinal.trigger`](#how-ci-hands-a-build-to-kardinal-kardinalauth-and-kardinaltrigger)
+- [prod through a GitLab merge request, and the SCM webhook](#prod-through-a-gitlab-merge-request-and-the-scm-webhook)
+- [Gates](#gates)
+- [Bake, automatic rollback and supersession](#bake-automatic-rollback-and-supersession)
+- [MetricChecks, notifications and the dashboard](#metricchecks-notifications-and-the-dashboard)
+- [The rust chart: features and their defaults](#the-rust-chart-features-and-their-defaults)
 - [Sign-in and permissions](#sign-in-and-permissions)
 - [Workshop: "Production deploy with Kardinal"](#workshop-page-production-deploy-with-kardinal-replaces-304) (replaces module 30.4)
 - [Operating it](#operating-it)
 - [Upgrading a running stack from Kargo](#upgrading-a-running-stack-from-kargo)
 - [Known gaps](#known-gaps)
+- [Known Kardinal issues](#known-kardinal-issues)
 
 ## Architecture
 
@@ -35,10 +42,11 @@ On the **hub**:
 | Piece | Where | What it does |
 |---|---|---|
 | `kro-upstream` addon | `gitops/addons/charts/kro-upstream`, registry `platform.yaml` | Self-managed upstream kro **v0.10.0-rc.0** with the `GraphKind` feature (Kardinal builds one `kro.run/v1alpha1` Graph per Bundle). It also runs every hub RGD, in place of the EKS managed kro capability (`kroCapability.enabled: "false"` on the hub's EksCluster). |
-| `kardinal` addon | `gitops/addons/charts/kardinal` (umbrella over `oci://ghcr.io/pnz1990/charts/kardinal-promoter` 0.11.0), registry `gitops.yaml` | The controller, the Kardinal CRDs and admission policies. External Secrets for the controller's GitLab token (`<hub>/secrets.git_token`), a generated Bundle API token, and a read-only ClusterSecretStore (`kardinal-bundle-api`) through which the `team-*` CI namespaces copy that token. The UI's SSO (`sso`, see below). |
-| Per app | namespace `<app>-app` | Pipeline `<app>` (dev then prod, `update.strategy: yaml` on `deployment/<env>/application.yaml` `spec.image`, `health.type: argocd` on `<app>-<env>-cd`), PolicyGate `prod-approval` (1 approval), ExternalSecret `gitlab-git` (the Pipeline's git token, `kardinal.io/referenceable`). Synced by the Argo CD Application `<app>-kardinal`. |
-| CI glue | `cicd-pipeline` RGD, `spec.kardinal.enabled: "true"` | After the image push, CI's `create-bundle` step POSTs a Bundle (image, commit SHA, GitLab author, Argo Workflows run URL) instead of writing `deployment/dev` itself, so one writer owns each environment. The one-shot `initial` build creates no Bundle. |
-| Backstage | `platform/backstage/templates/cicd-pipeline`, parameter `promoter` (default `kardinal`) | Sets `kardinal.enabled` and adds `<app>-kardinal` plus the `kardinal/` objects to the generated `<app>-cicd` repo. No script to run. |
+| `kardinal` addon | `gitops/addons/charts/kardinal` (umbrella over `oci://ghcr.io/pnz1990/charts/kardinal-promoter` 0.11.0), registry `gitops.yaml` | The controller, the Kardinal CRDs and admission policies. External Secrets for the controller's GitLab token (`<hub>/secrets.git_token`), a generated Bundle API token, a read-only ClusterSecretStore (`kardinal-bundle-api`) through which the `team-*` CI namespaces copy that token, and a generated SCM webhook secret (`kardinal-scm-webhook`). The Bundle API also accepts Kubernetes tokens (`bundleAPI.tokenReview`). The UI's SSO (`sso`, see below). |
+| Per app | namespace `<app>-app` | Pipeline `<app>` (dev then prod, `update.strategy: yaml` on `deployment/<env>/application.yaml` `spec.image`, `health.type: argocd` on `<app>-<env>-cd`), PolicyGate `prod-approval` (1 approval), ExternalSecret `gitlab-git` (the Pipeline's git token, `kardinal.io/referenceable`), and with `kardinal.auth: tokenreview` the Role `<app>-ci-bundle-creator` for CI. Synced by the Argo CD Application `<app>-kardinal`. |
+| CI glue | `cicd-pipeline` RGD, `spec.kardinal` (`enabled`, `auth`, `trigger`) | After the image push, CI's `create-bundle` step POSTs a Bundle (image, commit SHA, GitLab author, Argo Workflows run URL) instead of writing `deployment/dev` itself, so one writer owns each environment. The one-shot `initial` build creates no Bundle. `auth` picks the credential CI sends, `trigger` who creates the Bundles ([below](#how-ci-hands-a-build-to-kardinal-kardinalauth-and-kardinaltrigger)). |
+| Backstage | `platform/backstage/templates/cicd-pipeline`, parameters `promoter` (default `kardinal`) and `kardinalAuth` (default `tokenreview`) | Sets `kardinal.enabled` and `kardinal.auth`, and adds `<app>-kardinal` plus the `kardinal/` objects to the generated `<app>-cicd` repo. No script to run. |
+| Dashboard | `grafana-dashboards` addon, on `enable_kardinal` clusters | The kardinal-promoter chart's Grafana dashboard in the platform's Amazon Managed Grafana (folder Platform Observability), from the metrics the hub's AMP scraper already collects. |
 
 The **spokes** are unchanged: managed kro 0.9.4-eks-1 runs the AppmodService RGD, Argo Rollouts
 runs the canary with the functional, performance and metrics gates. Kardinal never talks to the
@@ -50,9 +58,10 @@ Healthy (#977).
 exactly as for a manual or Kargo promotion. Kardinal's own numbers are in
 `Pipeline.status.deploymentMetrics` (`kardinal metrics`).
 
-`stamp-build-time` stays in CI for now. Kargo's NewestBuild read the manifest annotation it sets.
+`stamp-build-time` stays in CI. Kargo's NewestBuild read the manifest annotation it sets.
 Kardinal's NewestBuild (an OCI Subscription) reads the image config's `created` time, which kaniko
-already sets to the build time, so the step can go once the Subscription exploration is done.
+already sets to the build time. NewestBuild chose correctly on the stamped images of the live
+test; unstamped images were not tried, so the step is kept until they are.
 
 ## Why upstream kro on the hub, and the way back
 
@@ -71,9 +80,36 @@ A live hub was swapped in place: deleting the capability keeps every RGD, instan
 upstream kro adopts them with the same UIDs (checked first on a throwaway spoke, then on the
 workshop hub, with all 170 ACK resources keeping their AWS IDs). The spokes keep the capability.
 
-**The way back**, once the managed capability serves Graph with an RBAC model Kardinal's
-aggregation and impersonation work with (not run yet; the reverse of the tested swap).
-**Never let both kro controllers run.**
+### The way back, when the EKS capability serves Graph
+
+Swap back to the managed capability once it serves `graphs.kro.run`. This is the reverse of
+the tested swap and has not been run yet. **Never let both kro controllers run.**
+
+**Before you start**, check these on a throwaway cluster with the new capability version:
+
+- **Graph.** The capability serves `graphs.kro.run` (`kubectl get crd graphs.kro.run`), and a
+  minimal Graph that impersonates a namespaced ServiceAccount turns Ready.
+- **RBAC.** Upstream kro runs with `rbac.mode=aggregation`, so it gets Kardinal's rights from
+  every ClusterRole labelled `rbac.kro.run/aggregate-to-controller`:
+  - `kardinal-promoter-kro-watch` reads the Kardinal kinds, Deployments, and Argo CD
+    Applications, Rollouts and AnalysisRuns;
+  - `kro:controller:static` lets kro impersonate ServiceAccounts, since Kardinal's Graphs run
+    as `kardinal-graph` in each Pipeline namespace.
+
+  The capability is bound only to `eks-capabilities-kro`, through a ClusterRoleBinding to
+  `capabilities.eks.amazonaws.com` and the `<hub>-kro-capability-role/KRO` session. Bind it to
+  `kardinal-promoter-kro-watch` and to an `impersonate serviceaccounts` rule as well, then
+  check each grant:
+  - `kubectl auth can-i list bundles.kardinal.io -A --as <capability user>`
+  - `kubectl auth can-i impersonate serviceaccount/kardinal-graph -n <app>-app --as <capability user>`
+- **Install switches.** `hub.kroMode` drives two hub labels today. `managed` leaves out both
+  `enable_kro_upstream` and `enable_kardinal`, because the seed adds `enable_kardinal` only in
+  `upstream` mode. Before using `managed` for new installs, change `secrets-manager:seed` so it
+  labels `enable_kardinal` in both modes.
+- **`kardinal doctor`.** No kro Pod runs in the cluster with the capability. The check that
+  matters is `kro Graph CRD installed`; the `kro running` check may fail (untested).
+
+**Then**, on the hub:
 
 1. Let in-flight promotions finish and pause the Pipelines (`kardinal pause <app> -n <app>-app`).
    Delete every `graphs.kro.run` object while upstream kro still runs (Graphs carry
@@ -91,7 +127,9 @@ aggregation and impersonation work with (not run yet; the reverse of the tested 
    managed` for new installs). EKS creates the capability, which takes the RGDs and instances
    back in place, as tested on a spoke. The retained IAM role `<hub>-kro-capability-role` is
    re-adopted.
-4. Resume the Pipelines; `kardinal doctor` must show `kro Graph CRD installed`.
+4. Add the RBAC from "Before you start", resume the Pipelines, and push a change through dev:
+   a new Bundle must get a Graph, PolicyGates and a PromotionStep. `kardinal doctor` must show
+   `kro Graph CRD installed`.
 
 ## How a promotion works
 
@@ -109,10 +147,278 @@ aggregation and impersonation work with (not run yet; the reverse of the tested 
    gates run in that time.
 4. **dev, then prod.** dev has no gate and is promoted at once. prod waits at `prod-approval`:
    the PromotionStep for prod does not exist until someone approves (and nobody declines). The
-   approval is an `Approval` object with the approver's verified identity.
+   approval is an `Approval` object with the approver's verified identity. That is the java and
+   Backstage-template flow; rust's prod goes through a GitLab merge request instead
+   ([below](#prod-through-a-gitlab-merge-request-and-the-scm-webhook)).
 5. **Look inside.** `kardinal explain <app> -n <app>-app` shows every gate's expression and reason;
    `kardinal get bundles -n <app>-app` the versions and their phases (Promoting, Verified,
    Superseded, Failed); `kubectl get auditevents -n <app>-app` the history.
+
+## How CI hands a build to Kardinal: `kardinal.auth` and `kardinal.trigger`
+
+CI's side is the `spec.kardinal` block of the shared `cicd-pipeline` RGD, set in each app's
+`<app>-cicd` repo (`manifests/kro-cicd-pipeline.yaml`). Every field is a string, and with the
+defaults an instance renders the same WorkflowTemplate as before the field existed.
+
+| Field | Default | Meaning |
+|---|---|---|
+| `enabled` | `"false"` | `"true"`: CI creates a Bundle after the image push and stops writing `deployment/dev` |
+| `pipeline`, `pipelineNamespace` | `<application.name>`, `<application.name>-app` | the Kardinal Pipeline the Bundle is for |
+| `apiURL` | `http://kardinal-promoter.kardinal-system.svc:8083` | the Bundle API |
+| `tokenStore`, `tokenSecret` | `kardinal-bundle-api`, `kardinal-bundle-api-token` | where `auth: token` copies the static token from |
+| `auth` | `"token"` | `token` or `tokenreview`: the credential CI sends |
+| `trigger` | `"ci"` | `ci` or `subscription`: who creates the Bundles |
+
+### `kardinal.auth`: which credential CI sends
+
+| | `token` (the RGD default) | `tokenreview` (the Backstage default, `kardinalAuth`) |
+|---|---|---|
+| CI sends | the platform-wide static Bundle API token. The ExternalSecret `<app>-cicd-kardinal-bundle-token` copies it into `team-<app>` through the `kardinal-bundle-api` store | its own ServiceAccount token (`<app>-cicd-sa`, projected, audience `kardinal-promoter`, 10 minutes), mounted at the same path. No token is copied |
+| Kardinal checks | that it is the static token | a TokenReview, then a SubjectAccessReview: `get pipelines` and `create bundles` in the Pipeline's namespace |
+| Also needs | nothing | `bundleAPI.tokenReview` on the addon (on), and a Role and RoleBinding in `<app>-app` for `system:serviceaccount:team-<app>:<app>-cicd-sa`. The template writes them to `kardinal/ci-bundle-creator.yaml`; the rust chart's `ciTokenReview` does the same |
+| The Bundle's `kardinal.io/created-by` | `bundle-api` | `system:serviceaccount:team-<app>:<app>-cicd-sa` |
+| A leaked credential allows | a Bundle for any Pipeline, until someone rotates the Secret by hand | that app's Bundles, for at most 10 minutes. The audience makes the token useless against the API server |
+
+**When to use which**
+- **`tokenreview`** whenever more than one team shares the hub. A team's CI can then promote only its
+  own app. This was checked live: each app's CI token gets 403 in the other apps' namespaces, for
+  java, rust and a Backstage-scaffolded app. Gates can also tell CI's Bundles apart, through
+  `bundle.createdBy` and an approval gate's `excludeAuthor`.
+- **`token`** for a single team, or while the addon's TokenReview is off. It stays the RGD default
+  so instances created before the option render unchanged; on the live stack, java still uses it.
+
+**Switching an existing app.** In `<app>-cicd`, set `kardinal.auth: "tokenreview"`, and first add
+the Role and RoleBinding to the app's Kardinal objects (for rust, `ciTokenReview.enabled`, which is
+on by default). kro then mounts the projected token and prunes the copied static token.
+
+> `tokenReview.acceptAPIServerAudience: true` is needed for the UI's SSO, and it applies to the
+> Bundle API too: a token with the API server's audience is accepted there as well, and RBAC still
+> decides ([#1930](https://github.com/pnz1990/kardinal-promoter/issues/1930)).
+
+### `kardinal.trigger`: who creates the Bundles
+
+| | `ci` (default) | `subscription` |
+|---|---|---|
+| Who | CI's `create-bundle` step, right after the image push | a Kardinal Subscription that polls ECR (the rust chart's `subscription`, every 2 minutes) |
+| Provenance | commit SHA, author (from the GitLab API), Argo Workflows run URL | the image only: `provenance.commitSHA` is the image digest ([#1946](https://github.com/pnz1990/kardinal-promoter/issues/1946)); no author and no CI run |
+| CI | builds, pushes, creates the Bundle | builds and pushes only; it never writes `deployment/dev` and never creates a Bundle |
+| Also needs | the credential from `auth` | an ECR pull Secret. An External Secrets `ECRAuthorizationToken` generator mints it by assuming a read-only role that trusts the External Secrets controller's role (`applications/rust/kardinal/subscription-ecr-role.sh`). Kardinal itself makes no AWS calls |
+
+Use `ci`. A Subscription is for images built outside the workshop's CI. Seen live:
+- **Never both.** With `trigger: ci` and a Subscription, every build is promoted twice. The
+  Subscription's Bundle, which has no provenance, supersedes CI's, and dev's bake starts over.
+- **Strategies.**
+  - `NewestBuild` with `tagFilter: ^[0-9a-f]{40}$` works. On every poll it reads the image config of
+    each remaining tag, and it fails when more than `discoveryLimit` tags remain.
+  - `SemVer` and `Lexical` need ordered tags. On commit-SHA tags, `Lexical` picks the tag that sorts
+    last, which can be an older build.
+- **Edits.** Changing the strategy or the filters does not take a new baseline. The next poll
+  promotes whatever the new selection picks, even an older image
+  ([#1943](https://github.com/pnz1990/kardinal-promoter/issues/1943)), so pause the Pipeline first.
+
+## prod through a GitLab merge request, and the SCM webhook
+
+With `approval: pr-review` (rust's default for prod), prod's PromotionStep does not push to `main`.
+It opens a GitLab merge request:
+- **Title and branch:** `[kardinal] Promote <bundle> to prod`, from branch
+  `kardinal/<hash>/<bundle>/prod`.
+- **Labels:** `kardinal`, `kardinal/promotion` and the `pr.labels` (rust adds the Pipeline name).
+- **Body, the evidence:**
+  - artifact provenance (commit, author, CI run, the verified creator);
+  - policy gate compliance (each gate, and any override with its reason);
+  - upstream verification (dev's health).
+- **Commit status:** `kardinal/gates`.
+
+A person reviews the evidence and merges; that merge is the prod promotion. Kardinal then waits
+until `<app>-prod-cd` is Healthy and Synced at the merge commit, as for `approval: auto`.
+- **Superseded:** if a newer Bundle arrives first, Kardinal closes the open MR with a note and
+  deletes its branch.
+- **Rollbacks** go through an MR too, labelled `kardinal/rollback`.
+- **Paused Pipelines:** a merge while the Pipeline is paused still promotes. Pausing stops new
+  steps, not a merge.
+- **DORA** is unchanged. The merge commit is a push to `deployment/prod/`, so DevLake records the
+  PRODUCTION deployment, and Kardinal's MRs also show up in DevLake's pull request data.
+
+**How Kardinal sees the merge.** It polls GitLab every 30 seconds; live, merges were seen 2 to 34 s
+after they happened. The addon also prepares a faster path, but leaves it closed:
+- It generates the webhook secret `kardinal-system/kardinal-scm-webhook` (key `secret`), once, with
+  an External Secrets Password generator.
+- The controller serves `POST /webhook/scm` on port 8083 and checks GitLab's `X-Gitlab-Token`. This
+  was checked in-cluster: a wrong token gets 401, the right one gets 204 and the log line
+  "PRStatus marked merged via webhook".
+- Even then, Kardinal re-checks every merge with the GitLab API before it acts.
+
+**Why the GitLab webhook is not exposed.** The workshop GitLab reaches the hub only through the
+public CloudFront platform domain, as the argo-events CI webhooks do. Delivering Kardinal's
+webhook would need a new public Ingress, and it would save at most 30 seconds per prod merge.
+Against that:
+- **A shared port.** The webhook shares port 8083 with the Bundle API (`/api/v1/bundles`). The
+  Ingress must route exactly `/webhook/scm`; a broader rule would put the Bundle API on the
+  internet.
+- **One barrier.** The shared secret becomes the only barrier between the internet and the
+  controller, and every request, valid or not, costs the controller work.
+- **The private route needs an admin setting.** GitLab's "Allow requests to the local network from
+  webhooks and integrations" is an admin setting, and the workshop user is not an admin.
+
+**Optional: expose it anyway.** Only after weighing the above:
+1. Add an Ingress in `kardinal-system` on the shared ALB. Use `ingressClassName: platform` and the
+   annotations of `kardinal-ui`, with one rule: `path: /webhook/scm`, `pathType: Exact`, backend
+   Service `kardinal-promoter`, port 8083. Then check from outside that `https://<domain>/api/v1/bundles`
+   is not routed to Kardinal.
+2. In the GitLab project `user1/<app>`, go to Settings > Webhooks:
+   - URL `https://<domain>/webhook/scm`;
+   - Secret token: the value of `kardinal-scm-webhook`
+     (`kubectl -n kardinal-system get secret kardinal-scm-webhook -o jsonpath='{.data.secret}' | base64 -d`);
+   - trigger **Merge request events** only.
+3. Merge a promotion MR. Within seconds the controller log shows "PRStatus marked merged via
+   webhook".
+
+## Gates
+
+A gate is a PolicyGate: a CEL expression that must be true before a version enters the
+environment named in `kardinal.io/applies-to`. A version gets every gate that exists when it
+starts promoting.
+
+| Scope | Where | Owner | Live examples |
+|---|---|---|---|
+| team | the Pipeline's namespace `<app>-app`, label `kardinal.io/scope: team` | the app team (its chart or its `<app>-cicd` repo) | `prod-approval` (java, Backstage apps); `prod-dev-soak`, `prod-change-window`, `prod-no-weekends`, `prod-dev-healthy` (rust) |
+| org | namespace `platform-policies` (the controller's policy namespace), label `kardinal.io/scope: org` | the platform team (cluster-admin) | `org-holiday-freeze` (`applications/rust/kardinal/examples/org-gates.yaml`) |
+
+- **Approvals.**
+  - `approval.required: N` makes a gate wait for N Approvals, given in the UI or with
+    `kardinal approve`. A decline (`kardinal approve <app> <env> --decision reject`) blocks it.
+  - An Approval records the approver's verified identity: `oidc:user1` from the UI, the IAM role
+    from the CLI.
+  - With `pr-review` the MR is prod's human gate, so rust's `prod-approval` is off.
+- **Soak.** `upstream.dev.soakMinutes >= 2` makes prod wait until the version has run in dev for 2
+  minutes. The soak counts from dev **Verified**, which comes after dev's bake, so the two add up:
+  with rust's defaults a version spends 4 minutes or more in dev before prod.
+- **ChangeWindows.**
+  - A ChangeWindow is cluster-scoped, so the platform team owns it (`examples/change-windows.yaml`).
+    It is either `recurring` (allowed days and hours) or a `blackout` (start and end).
+  - A gate reads it: `changewindow.isAllowed("rust-prod-hours")`,
+    `!changewindow.isBlocked("peeks-holiday-freeze")`. A missing window blocks the gate (fail
+    closed).
+  - Live, a version waited at the gate until the window opened, and the gate passed 13 s after the
+    opening.
+  - `schedule.isWeekend` needs no window.
+- **Org gates** apply to every Pipeline that has an environment of that name (java's prod too).
+  A team cannot remove or weaken them; only an override passes them.
+- **Escape hatches.** Each is recorded as an AuditEvent, except pause and resume
+  ([#1939](https://github.com/pnz1990/kardinal-promoter/issues/1939)).
+  - `kardinal override <app> <env> -n <app>-app --gate <gate> --reason … --expires-in 30m` passes
+    one gate for a limited time; the MR evidence shows the reason.
+  - `kardinal hold` / `unhold` holds one environment.
+  - `kardinal pause` / `resume` freezes the whole Pipeline with a freeze gate.
+- **Before a change.**
+  - `kardinal policy simulate <app> <env> -n <app>-app --time … --soak-minutes …` evaluates the
+    gates for a given time.
+  - `kardinal explain` and `kardinal why` show each gate's state, expression and reason.
+  - Their hints leave out `-n`, ChangeWindow gates show no opening time, and `simulate` rounds the
+    next window to the hour ([#1940](https://github.com/pnz1990/kardinal-promoter/issues/1940)).
+
+## Bake, automatic rollback and supersession
+
+- **Bake** (`bake.minutes`, `bake.policy`). After the health check passes, the environment must
+  stay healthy for that long, without a break, before the version is Verified.
+  - `reset-on-alarm` restarts the window on an unhealthy check.
+  - `fail-on-alarm` applies `onHealthFailure` at once.
+  - rust's dev uses 2 minutes with `reset-on-alarm`.
+- **`onHealthFailure`** decides what happens when the environment fails:
+  - `none`: the step fails;
+  - `abort`: the step stops for a person;
+  - `rollback`: Kardinal creates a rollback Bundle (`<bundle>-rollback-alarm`, annotation
+    `kardinal.io/rollback`) that restores the version Verified there before, and the bad version
+    never reaches the next environment.
+
+  Live, with a bad rust build: the canary aborted at 04:30:34, the rollback started at the 4-minute
+  health timeout (04:33:42), and dev ran the previous image again at 04:34:07. DevLake recorded the
+  DEVELOPMENT failure.
+- **Limitation: an aborted canary shows as Progressing.**
+  - Argo CD tracks the kro AppmodService, not the spoke Rollout under it. When the canary's analysis
+    aborts the Rollout, the AppmodService just stays not Ready, and the Application shows
+    Progressing, not Degraded.
+  - Kardinal reads that as "still waiting" and acts only at `health.timeout`: 10 minutes for rust's
+    dev, 20 for the template's Pipelines. `fail-on-alarm` cannot act sooner either.
+  - An Argo CD health check for the AppmodService that maps an aborted Rollout to Degraded would make
+    the rollback immediate. It is not part of this branch, so keep dev's `healthTimeout` short.
+- **Manual rollback.** `kardinal rollback <app> --env prod -n <app>-app --hold --reason …` creates a
+  rollback Bundle (`--to <bundle>` picks the version).
+  - The rollback Bundle goes through dev first.
+  - With `--hold`, prod stays on the restored version until `kardinal unhold`, and prod's gates
+    show `EXEMPT: rollback …`.
+  - `kardinal reject <bundle>` marks a version bad (`status.rejectedArtifacts`), so it is not
+    promoted again.
+- **Supersession.** A newer Bundle of the same Pipeline supersedes one still in flight. Its
+  unfinished steps fail with "superseded — promotion cancelled", and an open MR is closed with a
+  note and its branch deleted (AuditEvent `PromotionSuperseded`). Builds never queue up: the newest
+  one wins.
+
+## MetricChecks, notifications and the dashboard
+
+- **MetricCheck** (rust `metricChecks`, off by default). A measurement that a gate reads as
+  `metrics["<name>"]`.
+  - The live one is a `web` check: `GET http://<dev ALB>/rust-app/collection/FRONT_PAGE` every
+    minute, JSONPath `{[0].partition_key}`, which must equal `PRODUCT`.
+  - The gate `prod-dev-healthy` (`metrics["dev-front-page"].result == "Pass"`) holds prod while
+    dev's front page is broken.
+  - Loopback and metadata addresses are refused.
+  - Two other providers are not wired up. CloudWatch needs an IAM role and Pod Identity for the
+    controller, plus `metricCheck.cloudWatch.ambientCredentials`. Amazon Managed Prometheus needs
+    SigV4, and the prometheus provider sends only an `Authorization` header.
+- **NotificationHook** (rust `notifications`, off by default). Kardinal POSTs promotion events to a
+  receiver.
+  - Events: `Bundle.Verified`, `Bundle.Failed`, `Bundle.Superseded`, `Bundle.RollbackStarted`,
+    `Bundle.RolledBack`, `PolicyGate.Blocked`, `PolicyGate.Unblocked`, `PromotionStep.Failed`,
+    `PromotionStep.PROpened` and `PromotionStep.WaitingForApproval`.
+  - Formats: `json`, `cloudevents`, `slack`, `teams` or a template.
+  - A URL that carries a token (Slack, Teams) goes in a Secret labelled
+    `kardinal.io/referenceable`.
+  - Live: 49 deliveries to an in-cluster receiver, covering every event type that occurred.
+  - Bundle and PromotionStep events carry the object's creation time as their `time`
+    ([#1945](https://github.com/pnz1990/kardinal-promoter/issues/1945)), so order them by arrival.
+- **Metrics and the dashboard.**
+  - The hub's AMP managed scraper already scrapes every pod on port 8080 (job
+    `polyglot_app_config`), which is the controller's metrics port. That gives 27 `kardinal_*`
+    metrics (for example `sum by (phase) (kardinal_bundles_total)`), plus controller-runtime and Go.
+  - The `grafana-dashboards` addon ships the chart's dashboard to AMG on `enable_kardinal` clusters:
+    GrafanaDashboard `kardinal-grafanadashboard`, folder Platform Observability.
+  - Its controller-runtime and work-queue panels select `namespace="$namespace"`. Upstream they have
+    no selector and sum every controller in the shared AMP
+    ([#1941](https://github.com/pnz1990/kardinal-promoter/issues/1941)).
+- **Kardinal's DORA numbers** (`kardinal metrics <app>`, `Pipeline.status.deploymentMetrics`) are
+  not DevLake's, so DevLake stays the workshop's DORA source:
+  - "commit to prod" starts at Bundle creation, which leaves out CI's build time;
+  - `auto_rollback_rate` counts manual rollbacks too
+    ([#1942](https://github.com/pnz1990/kardinal-promoter/issues/1942));
+  - change failure rate and time to restore never count a retired Bundle
+    ([#1944](https://github.com/pnz1990/kardinal-promoter/issues/1944)).
+
+## The rust chart: features and their defaults
+
+`applications/rust/kardinal/chart` is synced by the Application `rust-kardinal` (values in its
+`valuesObject` over `chart/values.yaml`). Every feature is a values key; change it in git.
+
+| Value | Default | What it does |
+|---|---|---|
+| `environments.dev.approval` | `auto` | dev is pushed to `main` at once |
+| `environments.dev.bake` | `{minutes: 2, policy: reset-on-alarm}` | dev must stay healthy for 2 minutes before Verified |
+| `environments.dev.onHealthFailure` | `rollback` | a version that fails in dev is rolled back by a rollback Bundle |
+| `environments.dev.healthTimeout` | `10m` | when a dev that is not Healthy counts as failed (see the Progressing limitation) |
+| `environments.prod.approval` | `pr-review` | prod through a GitLab MR, labelled with the Pipeline name (`pr.labels`) |
+| `environments.prod.healthTimeout`, `onHealthFailure`, `waitForMergeTimeout` | empty | the chart-wide `healthTimeout`, and Kardinal's defaults |
+| `gates.prod-dev-soak` | **on** | prod waits until the version has run in dev for 2 minutes |
+| `gates.prod-approval` | off | one approval for prod (the MR is already the human gate) |
+| `gates.prod-no-weekends` | off | `!schedule.isWeekend` |
+| `gates.prod-change-window` | off | prod only inside the ChangeWindow `rust-prod-hours` (apply `examples/change-windows.yaml` first) |
+| `gates.prod-dev-healthy` | off | the MetricCheck `dev-front-page` passes |
+| `metricChecks.dev-front-page` | off | the web check of dev's front page; set `url` to dev's ALB |
+| `notifications` | off | NotificationHook `rust-events`, `cloudevents`, the ten events above |
+| `subscription` | off | ECR Subscription `rust-ecr` (NewestBuild, commit-SHA tags, every 2 minutes); pair it with `kardinal.trigger: subscription` |
+| `ciTokenReview` | **on** | Role `rust-ci-bundle-creator` for CI's own token, used once `kardinal.auth` is `tokenreview` |
+| `healthTimeout`, `historyLimit` | `20m`, `50` | defaults for every environment; finished Bundles kept (the targets of `rollback --to`) |
+
+On the live stack, `rust-cicd` runs `kardinal.auth: tokenreview` and `trigger: ci`.
 
 ## Sign-in and permissions
 
@@ -308,6 +614,10 @@ Troubleshooting (seen on the live stack):
 | A Keycloak user signs in but sees no pipelines | no binding for their group: add it to `sso.roleBindings` |
 | A step waits 20 minutes, then the Bundle fails | the canary aborted: the Argo CD Application shows Progressing, not Degraded, because it tracks the AppmodService, not the Rollout. Check `kubectl argo rollouts get rollout` on the spoke. A newer Bundle supersedes the stuck one |
 | dev waits for Argo CD's poll after a version that changed nothing | kardinal-promoter #1910 (no refresh for a no-change step) |
+| CI's `create-bundle` gets 403 `cannot get pipelines.kardinal.io` | `kardinal.auth: tokenreview` without the Role: add `<app>-ci-bundle-creator` to `<app>-app` (template `kardinal/ci-bundle-creator.yaml`, rust `ciTokenReview`) |
+| CI's `create-bundle` gets 401 | with `tokenreview`: the addon's `bundleAPI.tokenReview` is off. With `token`: the copied token Secret is missing (`kubectl -n team-<app> get externalsecret <app>-cicd-kardinal-bundle-token`) |
+| CI's `create-bundle` gets 400 | the Bundle failed validation, e.g. a commit SHA Kardinal refuses (the `initial` build skips the step for that reason) |
+| A prod MR was merged but prod did not move for up to 30 s | merges are seen by polling; see the SCM webhook section |
 | The Backstage home page still links Kargo | Backstage reads app-config at start: `kubectl -n backstage rollout restart deploy/backstage` |
 
 ## Upgrading a running stack from Kargo
@@ -354,3 +664,35 @@ to clean one app only.
 - **One OIDC identity provider per EKS cluster**: the hub's is Keycloak, for the Kardinal UI.
 - **Backstage** has no config checksum: app-config changes need a restart (all of them, not only
   the Kardinal link).
+- **A failed canary is noticed at `health.timeout`**, not at once: Argo CD shows the AppmodService
+  Progressing (see [Bake, automatic rollback and supersession](#bake-automatic-rollback-and-supersession)).
+- **The GitLab webhook is not exposed**: merges are seen by polling, within 30 s.
+- **MetricChecks**: only the `web` provider is wired; CloudWatch and AMP need credentials Kardinal
+  does not have here.
+- **DevLake keeps per-app records**: the cleanup script does not remove an app's DevLake data.
+
+## Known Kardinal issues
+
+Found on this stack and filed on [pnz1990/kardinal-promoter](https://github.com/pnz1990/kardinal-promoter/issues);
+all open on 2026-10-15.
+
+| Issue | What it is | Here |
+|---|---|---|
+| [#1882](https://github.com/pnz1990/kardinal-promoter/issues/1882) | no live e2e coverage for `health.type: argocd` and `health.refresh` through `health.kubeconfigSecretRef` | test coverage only |
+| [#1883](https://github.com/pnz1990/kardinal-promoter/issues/1883) | after a refused refresh, Argo CD's poll can keep an ancestor commit for minutes, and `doctor` can't catch the missing permission | not hit: the hub's local Argo CD accepts the refresh |
+| [#1884](https://github.com/pnz1990/kardinal-promoter/issues/1884) | chart: `--hook-service-accounts` rendered twice | harmless |
+| [#1910](https://github.com/pnz1990/kardinal-promoter/issues/1910) | a step that changes nothing waits for the branch head but never asks Argo CD to sync | dev can wait for Argo CD's own poll (about 8 minutes) |
+| [#1911](https://github.com/pnz1990/kardinal-promoter/issues/1911) | `spec.stepType` and `kardinal explain` say `kustomize-set-image` for `update.strategy: yaml` | cosmetic |
+| [#1912](https://github.com/pnz1990/kardinal-promoter/issues/1912) | chart: `<release>-admin` renders `rules: []` with an `aggregationRule`, so Argo CD shows it OutOfSync | worked around: `ignoreDifferences` in the `kardinal` registry entry |
+| [#1930](https://github.com/pnz1990/kardinal-promoter/issues/1930) | `tokenReview.acceptAPIServerAudience` is one switch for the UI API and the Bundle API | accepted; RBAC still decides |
+| [#1931](https://github.com/pnz1990/kardinal-promoter/issues/1931) | docs: UI single sign-on through an OIDC proxy and Kubernetes OIDC | this page documents the setup |
+| [#1932](https://github.com/pnz1990/kardinal-promoter/issues/1932) | `update.strategy: yaml` cannot address map keys with `.` or `/` | KubeVela's `publishVersion` by hand |
+| [#1933](https://github.com/pnz1990/kardinal-promoter/issues/1933) | the UI cannot be served under a path prefix | the UI claims the root paths `/ui` and `/api/v1/ui` |
+| [#1939](https://github.com/pnz1990/kardinal-promoter/issues/1939) | no AuditEvent for pause/resume or for the merge of a pr-review MR | who merged is in GitLab's MR history |
+| [#1940](https://github.com/pnz1990/kardinal-promoter/issues/1940) | CLI hints drop `-n`; ChangeWindow gates get no opening time; `policy simulate` rounds to the hour | add `-n <app>-app` yourself |
+| [#1941](https://github.com/pnz1990/kardinal-promoter/issues/1941) | chart dashboard: controller-runtime and work-queue panels unscoped | fixed in the platform's copy |
+| [#1942](https://github.com/pnz1990/kardinal-promoter/issues/1942) | "commit to prod" starts at Bundle creation; `auto_rollback_rate` counts manual rollbacks | use DevLake for DORA |
+| [#1943](https://github.com/pnz1990/kardinal-promoter/issues/1943) | Subscription: editing strategy or filters can promote an older image | pause the Pipeline before editing |
+| [#1944](https://github.com/pnz1990/kardinal-promoter/issues/1944) | change failure rate and time to restore never count a retired Bundle | use DevLake for DORA |
+| [#1945](https://github.com/pnz1990/kardinal-promoter/issues/1945) | NotificationHook: Bundle and PromotionStep events carry the creation time | order events by arrival |
+| [#1946](https://github.com/pnz1990/kardinal-promoter/issues/1946) | Subscription: `provenance.commitSHA` is the image digest | prefer `kardinal.trigger: ci` |

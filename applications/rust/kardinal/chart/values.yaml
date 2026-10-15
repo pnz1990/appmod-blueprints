@@ -103,8 +103,9 @@ gates:
 # spec is the MetricCheck spec. Providers: prometheus, datadog, cloudwatch, newrelic, web.
 metricChecks:
   # dev's front page through its Ingress answers 200 with a JSON list of products. url:
-  # http://<dev ALB>/rust-app/collection/FRONT_PAGE (the deploy script finds it with
-  # KARDINAL_LAB=1). Loopback and metadata addresses are refused; private ones are allowed.
+  # http://<dev ALB>/rust-app/collection/FRONT_PAGE, the ALB from
+  # kubectl --context <prefix>-spoke-dev -n team-rust get ingress (status.loadBalancer).
+  # Loopback and metadata addresses are refused; private ones are allowed.
   dev-front-page:
     enabled: false
     spec:
