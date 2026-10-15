@@ -101,6 +101,30 @@ for f in pipeline.yaml prod-approval.yaml git-secret.yaml; do
 done
 echo "✓ promoter defaults to kardinal; the CICDPipeline opt-in and the Kardinal Application depend on it"
 
+# Check the kardinalAuth parameter (CI's Bundle API auth), shown only with promoter kardinal
+echo "Checking kardinalAuth parameter..."
+AUTH_BRANCH='.spec.parameters[3].dependencies.promoter.oneOf[] | select(.properties.promoter.enum[0] == "kardinal") | .properties.kardinalAuth'
+AUTH_DEFAULT=$(yq "$AUTH_BRANCH | .default" "$TEMPLATE_FILE")
+AUTH_ENUM=$(yq -o=json -I=0 "$AUTH_BRANCH | .enum" "$TEMPLATE_FILE")
+if [ "$AUTH_DEFAULT" != "tokenreview" ] || [ "$AUTH_ENUM" != '["tokenreview","static"]' ]; then
+    echo "ERROR: kardinalAuth should default to tokenreview with enum [tokenreview, static] (promoter kardinal only), found default=$AUTH_DEFAULT enum=$AUTH_ENUM"
+    exit 1
+fi
+if ! yq '.spec.steps[] | select(.id == "fetch-base") | .input.values.kardinal_auth' "$TEMPLATE_FILE" | grep -q 'parameters.kardinalAuth'; then
+    echo "ERROR: fetch-base does not pass kardinalAuth to the skeleton as kardinal_auth"
+    exit 1
+fi
+if ! grep -q 'values.kardinal_auth == "static"' skeleton/manifests/kro-cicd-pipeline.yaml || \
+   ! grep -q 'auth: "tokenreview"' skeleton/manifests/kro-cicd-pipeline.yaml; then
+    echo "ERROR: skeleton/manifests/kro-cicd-pipeline.yaml does not map kardinal_auth to kardinal.auth"
+    exit 1
+fi
+if ! grep -q 'values.kardinal_auth != "static"' skeleton/kardinal/ci-bundle-creator.yaml; then
+    echo "ERROR: skeleton/kardinal/ci-bundle-creator.yaml (CI's Bundle API Role) is not conditional on kardinal_auth"
+    exit 1
+fi
+echo "✓ kardinalAuth defaults to tokenreview; kardinal.auth and CI's Role depend on it"
+
 # Check default values
 echo "Checking default values..."
 

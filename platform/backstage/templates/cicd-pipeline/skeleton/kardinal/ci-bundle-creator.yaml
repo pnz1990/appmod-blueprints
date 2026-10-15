@@ -1,0 +1,33 @@
+{%- if values.promoter == "kardinal" and values.kardinal_auth != "static" %}
+# CI's own identity for Kardinal's Bundle API (kardinal.auth "tokenreview" in
+# ../manifests/kro-cicd-pipeline.yaml). CI's ServiceAccount ${{values.appname}}-cicd-sa in
+# ${{values.namespace}} may get this namespace's Pipelines and create their Bundles: the two
+# rights Kardinal's SubjectAccessReview checks, and nothing more (Kardinal's promoter
+# ClusterRole would also allow pause, hold and reject). Another app's CI gets 403 here.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ${{values.appname}}-ci-bundle-creator
+  namespace: ${{values.appname}}-app
+rules:
+- apiGroups: ["kardinal.io"]
+  resources: ["pipelines"]
+  verbs: ["get"]
+- apiGroups: ["kardinal.io"]
+  resources: ["bundles"]
+  verbs: ["create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ${{values.appname}}-ci-bundle-creator
+  namespace: ${{values.appname}}-app
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ${{values.appname}}-ci-bundle-creator
+subjects:
+- kind: ServiceAccount
+  name: ${{values.appname}}-cicd-sa
+  namespace: ${{values.namespace}}
+{%- endif %}

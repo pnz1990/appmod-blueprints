@@ -44,4 +44,15 @@ spec:
   # see ../kardinal) instead of writing deployment/dev itself: Kardinal deploys dev, then prod.
   kardinal:
     enabled: "true"
+{%- if values.kardinal_auth == "static" %}
+    # CI sends the platform-wide static Bundle API token, copied into this namespace from
+    # kardinal-system. Whoever holds it can create a Bundle for any Pipeline.
+    auth: "token"
+{%- else %}
+    # CI sends its own ServiceAccount token (audience kardinal-promoter, 10 minutes). Kardinal
+    # checks it with a TokenReview and a SubjectAccessReview: the Role in
+    # ../kardinal/ci-bundle-creator.yaml lets it create this app's Bundles only. The Bundle
+    # records the ServiceAccount as its creator (kardinal.io/created-by).
+    auth: "tokenreview"
+{%- endif %}
 {%- endif %}

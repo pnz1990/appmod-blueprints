@@ -76,6 +76,35 @@ spec:
             - Kardinal (dev automatic, prod after approval)
             - None (CI deploys dev only)
           ui:help: 'Kardinal needs the kardinal addon on the hub (hub.kroMode upstream)'
+      dependencies:
+        promoter:
+          oneOf:
+            - properties:
+                promoter:
+                  enum:
+                    - kardinal
+                kardinalAuth:
+                  title: CI authentication to Kardinal
+                  description: >-
+                    How CI proves who it is when it creates a Bundle.
+                    tokenreview: the CI ServiceAccount's own short-lived token; Kardinal checks it
+                    and its RBAC, which only allows this app's Pipeline, and records the
+                    ServiceAccount as the Bundle's creator.
+                    static: the platform-wide Bundle API token, which can create a Bundle for any
+                    Pipeline.
+                  type: string
+                  default: tokenreview
+                  enum:
+                    - tokenreview
+                    - static
+                  enumNames:
+                    - Per-app identity (ServiceAccount token, recommended)
+                    - Shared static token
+                  ui:help: 'tokenreview needs bundleAPI.tokenReview on the kardinal addon (on by default)'
+            - properties:
+                promoter:
+                  enum:
+                    - none
   steps:
     - id: fetchSystem
       name: Fetch System
@@ -95,6 +124,7 @@ spec:
           - Dockerfile Path: ${{ parameters.dockerfile_path }}
           - Deployment Path: ${{ parameters.deployment_path }}
           - Promoter: ${{ parameters.promoter }}
+          - Kardinal CI auth: ${{ parameters.kardinalAuth }}
 
     - action: fetch:template
       name: Fetch Base
@@ -116,6 +146,7 @@ spec:
           dockerfile_path: ${{parameters.dockerfile_path}}
           deployment_path: ${{parameters.deployment_path}}
           promoter: ${{ parameters.promoter }}
+          kardinal_auth: ${{ parameters.kardinalAuth }}
           created_by: ${{ (user.entity.spec.profile.displayName | default(user.entity.metadata.name) | default(user.ref) | default("backstage-user")) | replace(" ", "-") }}
 
     - id: publish

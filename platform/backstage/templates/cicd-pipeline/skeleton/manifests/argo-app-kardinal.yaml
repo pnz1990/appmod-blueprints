@@ -1,7 +1,8 @@
 {%- if values.promoter == "kardinal" %}
 # Kardinal promotes ${{values.appname}} from dev to prod: syncs ../kardinal (the Pipeline, the
-# prod approval gate and the Pipeline's git token) from this repo into ${{values.appname}}-app on
-# the hub, where Kardinal runs. Change the promotion there, in git.
+# prod approval gate, the Pipeline's git token and, with kardinal.auth tokenreview, CI's Bundle
+# API Role) from this repo into ${{values.appname}}-app on the hub, where Kardinal runs. Change
+# the promotion there, in git.
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
