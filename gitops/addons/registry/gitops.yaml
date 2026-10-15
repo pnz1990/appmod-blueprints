@@ -104,6 +104,11 @@ kardinal:
         values: ['true']
   valuesObject:
     clusterName: '{{.metadata.annotations.aws_cluster_name}}'
+    # The Argo CD health check for AppmodService (an aborted canary is Degraded), applied
+    # as the EKS Argo CD capability's argocd-cm only on a capability hub: aws_argocd_url is
+    # set only there (templates/argocd-health.yaml).
+    argocdHealth:
+      capabilityURL: '{{default "" (index .metadata.annotations "aws_argocd_url")}}'
     # Keycloak SSO for the UI at https://<ingress_domain_name>/ui/ (templates/sso.yaml):
     # oauth2-proxy (Keycloak client `kardinal`, created by the keycloak-config job) in front,
     # an EKS OIDC identity provider for Keycloak on this cluster (ACK, namespace

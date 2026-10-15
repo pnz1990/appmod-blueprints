@@ -1,0 +1,25 @@
+{{- /*
+Argo CD health check for kro AppmodService instances (files/appmodservice-health.lua): an
+aborted canary is Degraded, not Progressing. Kardinal's health.type argocd reads the hub's
+Applications, so a Degraded Application counts as a failed health check at once, instead of
+the promotion waiting for health.timeout (see argocdHealth in values.yaml).
+
+The EKS Argo CD capability reads resource.customizations.health.<group>_<kind> from a
+ConfigMap argocd-cm, labelled app.kubernetes.io/part-of: argocd, in its namespace; a check for
+one kind replaces the capability's built-in check for that kind only. Rendered only when the
+hub's Argo CD is the capability (argocdHealth.capabilityURL, the cluster secret's
+aws_argocd_url): a self-managed Argo CD owns its argocd-cm (its Helm release), and this
+ConfigMap would replace it.
+*/ -}}
+{{- if and .Values.argocdHealth.enabled .Values.argocdHealth.capabilityURL }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: argocd-cm
+  namespace: {{ .Values.argocdHealth.namespace }}
+  labels:
+    app.kubernetes.io/part-of: argocd
+data:
+  resource.customizations.health.kro.run_AppmodService: |
+{{ .Files.Get "files/appmodservice-health.lua" | indent 4 }}
+{{- end }}

@@ -19,6 +19,20 @@ bundleAPI:
   clientNamespaceRegexes:
     - '^team-'
 
+# Argo CD health check for kro AppmodService instances (templates/argocd-health.yaml,
+# files/appmodservice-health.lua). With the AppmodService RGD's status.rollout, an aborted
+# canary makes the instance, and so its Argo CD Application, Degraded at once; without it the
+# Application stays Progressing, and Kardinal (health.type argocd) only sees the failure at
+# health.timeout. Applied as the argocd-cm ConfigMap the EKS Argo CD capability reads, and only
+# when capabilityURL is set (the registry entry passes the cluster secret's aws_argocd_url,
+# which only a capability hub has). For a self-managed Argo CD, add the same key,
+# resource.customizations.health.kro.run_AppmodService, to its argocd-cm instead.
+argocdHealth:
+  enabled: true
+  capabilityURL: ""
+  # The capability's namespace (configuration.argoCd.namespace).
+  namespace: argocd
+
 # Single sign-on for the Kardinal UI with the platform's Keycloak (templates/sso.yaml).
 # Kardinal's UI has no OIDC login of its own; it authenticates every UI API call with a
 # Kubernetes TokenReview and authorizes it with a SubjectAccessReview for that user. So:

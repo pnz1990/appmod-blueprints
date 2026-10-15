@@ -63,6 +63,29 @@ spec:
         pause: string | default="2s"
         path: string | default="/collection/FRONT_PAGE"
         evaluationCriteria: "[]map[string]string | default=[]"
+    status:
+      # What Argo Rollouts says about this service's Rollout. Only the entry of the Rollout
+      # variant the spec selects is set (kro leaves out the fields of the three it excludes).
+      # phase is Argo Rollouts' status.phase (Healthy, Progressing, Paused, Degraded), or
+      # Progressing until Argo Rollouts has observed the current spec, so a phase left by
+      # the previous release never counts. The instance itself stays not Ready while the
+      # Rollout is not Healthy (readyWhen, #977), which reads the same for a canary that is
+      # still running and one that was aborted; the Argo CD health check for AppmodService
+      # (gitops/addons/charts/kardinal, argocdHealth) reads phase Degraded as Degraded, so
+      # Argo CD, and promotion tools that read Argo CD, see an aborted canary at once.
+      rollout:
+        withDynamoDB:
+          phase: '${rolloutWithDynamoDB.status.?observedGeneration.orValue("") == string(rolloutWithDynamoDB.metadata.generation) ? rolloutWithDynamoDB.status.?phase.orValue("Progressing") : "Progressing"}'
+          message: ${rolloutWithDynamoDB.status.?message.orValue("")}
+        withoutDynamoDB:
+          phase: '${rolloutWithoutDynamoDB.status.?observedGeneration.orValue("") == string(rolloutWithoutDynamoDB.metadata.generation) ? rolloutWithoutDynamoDB.status.?phase.orValue("Progressing") : "Progressing"}'
+          message: ${rolloutWithoutDynamoDB.status.?message.orValue("")}
+        withGatesAndDynamoDB:
+          phase: '${rolloutWithGatesAndDynamoDB.status.?observedGeneration.orValue("") == string(rolloutWithGatesAndDynamoDB.metadata.generation) ? rolloutWithGatesAndDynamoDB.status.?phase.orValue("Progressing") : "Progressing"}'
+          message: ${rolloutWithGatesAndDynamoDB.status.?message.orValue("")}
+        withGatesWithoutDynamoDB:
+          phase: '${rolloutWithGatesWithoutDynamoDB.status.?observedGeneration.orValue("") == string(rolloutWithGatesWithoutDynamoDB.metadata.generation) ? rolloutWithGatesWithoutDynamoDB.status.?phase.orValue("Progressing") : "Progressing"}'
+          message: ${rolloutWithGatesWithoutDynamoDB.status.?message.orValue("")}
   resources:
     - id: iamroleselector
       includeWhen:
