@@ -1,0 +1,21 @@
+{{- /*
+The kardinal-promoter chart's own dashboard (chart 0.11.0, dashboards/), in the platform's
+Grafana (AMG) through grafana-operator, on clusters that run Kardinal (enable_kardinal). Its
+controller-runtime and work-queue panels are scoped to Kardinal's namespace: the workshop's
+Prometheus (AMP) holds every controller of every cluster, and unscoped they summed all of
+them. Kardinal's metrics reach AMP through the managed scraper's pod job on port 8080.
+*/ -}}
+{{- if eq (toString ((.Values.kardinal | default dict).enabled | default "false")) "true" }}
+apiVersion: grafana.integreatly.org/v1beta1
+kind: GrafanaDashboard
+metadata:
+  name: kardinal-grafanadashboard
+  namespace: {{ .Values.namespace | default "grafana-operator" }}
+spec:
+  folder: "Platform Observability"
+  instanceSelector:
+    matchLabels:
+      dashboards: "external-grafana"
+  json: |
+    {{- .Files.Get "dashboards/kardinal-promoter.json" | nindent 4 }}
+{{- end }}

@@ -199,6 +199,9 @@ grafana-dashboards:
     devlake:
       enabled: '{{index .metadata.labels "enable_devlake" | default "false"}}'
     devlake_version: 'v1.0.3-beta7'
+    # The Kardinal promoter dashboard, on clusters that run the kardinal addon.
+    kardinal:
+      enabled: '{{index .metadata.labels "enable_kardinal" | default "false"}}'
   ignoreDifferences:
     - group: external-secrets.io
       kind: ExternalSecret
