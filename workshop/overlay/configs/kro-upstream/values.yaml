@@ -1,0 +1,9 @@
+# Workshop: pin the self-managed upstream kro (hub only, hub.kroMode=upstream) to the tuned
+# system-peeks pool, like every other platform controller here. The built-in `system` pool
+# allows arm64 and would launch an extra node just for kro. This local chart wraps the
+# upstream kro chart under the `kro` key; the base values (addons/charts/kro-upstream)
+# keep compute-type/os and the CriticalAddonsOnly toleration, which system-peeks needs.
+kro:
+  deployment:
+    nodeSelector:
+      karpenter.sh/nodepool: system-peeks
