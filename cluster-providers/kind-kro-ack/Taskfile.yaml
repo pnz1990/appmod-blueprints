@@ -1947,7 +1947,11 @@ tasks:
         printf '  Backstage:  https://{{.INGRESS_DOMAIN}}/backstage\n'
         printf '  Keycloak:   https://{{.INGRESS_DOMAIN}}/keycloak\n'
         printf '  Argo WF:    https://{{.INGRESS_DOMAIN}}/argo-workflows\n'
-        printf '  Kargo:      https://{{.INGRESS_DOMAIN}}/\n'
+        printf '  Kargo:      https://{{.INGRESS_DOMAIN}}/kargo\n'
+        {{- if eq .HUB_KRO_MODE "upstream"}}
+        # Kardinal UI (Keycloak SSO). Its paths are absolute: /ui/, not a /kardinal prefix.
+        printf '  Kardinal:   https://{{.INGRESS_DOMAIN}}/ui/\n'
+        {{- end}}
         printf '  Grafana:    https://{{.INGRESS_DOMAIN}}/grafana\n'
         printf '  ArgoCD:     {{.ARGOCD_URL}}\n'
         printf '\n'

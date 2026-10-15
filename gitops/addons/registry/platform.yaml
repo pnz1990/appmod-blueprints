@@ -122,6 +122,8 @@ backstage:
     git_username: 'user1'
     working_repo: 'fleet-config'
     argocd_hostname: '{{default .metadata.annotations.ingress_domain_name .metadata.annotations.aws_argocd_url}}'
+    # Home page Quick Link to the Kardinal UI only where the kardinal addon runs.
+    kardinal_enabled: '{{default "false" (index .metadata.labels "enable_kardinal")}}'
     admin_role_name: '{{default "" .metadata.annotations.admin_role_name}}'
     model_s3_bucket: '{{.metadata.annotations.resource_prefix}}-ray-models-{{.metadata.annotations.aws_account_id}}'
     spoke_dev_cluster_name: '{{ or (index .metadata.annotations "spoke_dev_cluster_name") (printf "%s-spoke-dev" .metadata.annotations.resource_prefix) }}'

@@ -1,0 +1,307 @@
+{{- /*
+Keycloak single sign-on for the Kardinal UI (values `sso`, see values.yaml for the flow).
+
+  oauth2-proxy  Keycloak login (confidential client sso.clientID), then proxies /ui and
+                /api/v1/ui to the controller's UI port with the user's Keycloak ID token as
+                "Authorization: Bearer". The UI's own sign-in dialog never shows.
+  Ingress       the shared platform ALB, root paths /ui and /api/v1/ui (the UI's asset and
+                API paths are absolute). No other platform Ingress uses them.
+  EKS IdP       ACK IdentityProviderConfig: the API server accepts Keycloak ID tokens for
+                client sso.clientID, so Kardinal's TokenReview returns oidc:<user> and
+                oidc:<group>s, and its SubjectAccessReviews check that user's RBAC.
+  RBAC          ClusterRoleBindings of the chart's viewer/promoter/approver roles to the
+                Keycloak groups in sso.roleBindings.
+*/ -}}
+{{- if .Values.sso.enabled }}
+{{- $sso := .Values.sso }}
+{{- $kp := index .Values "kardinal-promoter" }}
+{{- if not $sso.ingressDomainName }}
+{{- fail "sso.ingressDomainName is required when sso.enabled" }}
+{{- end }}
+{{- if not $kp.ui.auth.tokenReview }}
+{{- fail "sso.enabled needs kardinal-promoter.ui.auth.tokenReview=true: Kardinal must authenticate the forwarded Keycloak token itself" }}
+{{- end }}
+{{- if not $kp.tokenReview.acceptAPIServerAudience }}
+{{- fail "sso.enabled needs kardinal-promoter.tokenReview.acceptAPIServerAudience=true: an OIDC ID token reviews with the API server's audience, not kardinal-promoter" }}
+{{- end }}
+{{- if not (has $sso.ingressDomainName $kp.ui.allowedHosts) }}
+{{- fail "sso.enabled needs sso.ingressDomainName in kardinal-promoter.ui.allowedHosts: oauth2-proxy passes the browser's Host" }}
+{{- end }}
+{{- $insecure := eq (toString ($sso.insecure | default "false")) "true" }}
+{{- $name := printf "%s-oauth2-proxy" .Release.Name }}
+{{- /* The upstream chart's fullname: the release name when it contains the chart name. */ -}}
+{{- $fullname := ternary .Release.Name (printf "%s-kardinal-promoter" .Release.Name) (contains "kardinal-promoter" .Release.Name) }}
+{{- $issuer := printf "https://%s%s" $sso.ingressDomainName $sso.issuerPath }}
+{{- $prefix := $sso.oauth2Proxy.proxyPrefix }}
+# The Keycloak client secret, written by the keycloak-config job to Secrets Manager
+# <clusterName>/keycloak-clients (the pattern of the other SSO clients).
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: {{ $name }}-client
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    argocd.argoproj.io/sync-wave: '-1'
+spec:
+  # The client may be created after this addon syncs (Keycloak syncs at wave 6): retry often.
+  refreshInterval: 5m
+  secretStoreRef:
+    name: {{ .Values.secretStore }}
+    kind: ClusterSecretStore
+  target:
+    name: {{ $name }}-client
+    creationPolicy: Owner
+  data:
+    - secretKey: client-secret
+      remoteRef:
+        key: {{ .Values.clusterName }}/keycloak-clients
+        property: {{ $sso.clientSecretProperty }}
+        conversionStrategy: Default
+        decodingStrategy: None
+        metadataPolicy: None
+---
+# oauth2-proxy's cookie encryption key: 32 random characters (an AES-256 key), generated once.
+apiVersion: generators.external-secrets.io/v1alpha1
+kind: Password
+metadata:
+  name: {{ $name }}-cookie
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    argocd.argoproj.io/sync-wave: '-2'
+spec:
+  length: 32
+  digits: 8
+  symbols: 0
+  noUpper: false
+  allowRepeat: true
+---
+apiVersion: external-secrets.io/v1
+kind: ExternalSecret
+metadata:
+  name: {{ $name }}-cookie
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    argocd.argoproj.io/sync-wave: '-1'
+spec:
+  # Regenerating it would only sign everyone out; never needed.
+  refreshPolicy: CreatedOnce
+  target:
+    name: {{ $name }}-cookie
+    creationPolicy: Owner
+    template:
+      data:
+        cookie-secret: '{{ "{{ .password }}" }}'
+  dataFrom:
+    - sourceRef:
+        generatorRef:
+          apiVersion: generators.external-secrets.io/v1alpha1
+          kind: Password
+          name: {{ $name }}-cookie
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+automountServiceAccountToken: false
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: oauth2-proxy
+    app.kubernetes.io/instance: {{ $name }}
+    app.kubernetes.io/part-of: kardinal
+spec:
+  replicas: {{ $sso.oauth2Proxy.replicas }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: oauth2-proxy
+      app.kubernetes.io/instance: {{ $name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: oauth2-proxy
+        app.kubernetes.io/instance: {{ $name }}
+        app.kubernetes.io/part-of: kardinal
+    spec:
+      serviceAccountName: {{ $name }}
+      automountServiceAccountToken: false
+      # Same placement as the controller (and the workshop's system-peeks pin of it).
+      {{- with $kp.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $kp.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: oauth2-proxy
+          image: {{ $sso.oauth2Proxy.image }}
+          args:
+            - --http-address=0.0.0.0:4180
+            - --provider=keycloak-oidc
+            - --oidc-issuer-url={{ $issuer }}
+            - --client-id={{ $sso.clientID }}
+            - --client-secret-file=/etc/oauth2-proxy/client/client-secret
+            - --code-challenge-method=S256
+            - --redirect-url=https://{{ $sso.ingressDomainName }}{{ $prefix }}/callback
+            - --proxy-prefix={{ $prefix }}
+            - --upstream=http://{{ $fullname }}.{{ .Release.Namespace }}.svc.cluster.local:8082/
+            # The ID token goes to Kardinal as "Authorization: Bearer"; Kardinal reviews it.
+            - --pass-authorization-header=true
+            - --email-domain=*
+            - --skip-provider-button=true
+            # XHRs from the UI get 401 instead of a login redirect when the session is gone.
+            - --api-route=^/api/v1/ui/
+            # The logo is public in Kardinal too (static, no data); Backstage's quick link
+            # shows it before the user has signed in here.
+            - --skip-auth-route=GET=^/ui/logo\.png$
+            - --reverse-proxy=true
+            - --cookie-name=_kardinal_oauth2
+            - --cookie-secret-file=/etc/oauth2-proxy/cookie/cookie-secret
+            - --cookie-secure=true
+            - --cookie-samesite=lax
+            - --cookie-refresh={{ $sso.oauth2Proxy.cookieRefresh }}
+            - --cookie-expire={{ $sso.oauth2Proxy.cookieExpire }}
+            - --silence-ping-logging=true
+          ports:
+            - name: http
+              containerPort: 4180
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: http
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /ping
+              port: http
+            periodSeconds: 20
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          resources:
+            {{- toYaml $sso.oauth2Proxy.resources | nindent 12 }}
+          volumeMounts:
+            - name: client
+              mountPath: /etc/oauth2-proxy/client
+              readOnly: true
+            - name: cookie
+              mountPath: /etc/oauth2-proxy/cookie
+              readOnly: true
+      volumes:
+        - name: client
+          secret:
+            secretName: {{ $name }}-client
+        - name: cookie
+          secret:
+            secretName: {{ $name }}-cookie
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+spec:
+  selector:
+    app.kubernetes.io/name: oauth2-proxy
+    app.kubernetes.io/instance: {{ $name }}
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+---
+# The shared platform ALB (IngressClass platform), like argo-workflows/backstage/keycloak.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: kardinal-ui
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/backend-protocol: HTTP
+    alb.ingress.kubernetes.io/healthcheck-path: /ping
+    alb.ingress.kubernetes.io/success-codes: '200'
+{{- if $insecure }}
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP":80}]'
+{{- else }}
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTPS":443}]'
+    alb.ingress.kubernetes.io/ssl-redirect: '443'
+{{- end }}
+spec:
+  ingressClassName: platform
+  rules:
+{{- if $insecure }}
+    - http:
+{{- else }}
+    - host: {{ $sso.ingressDomainName | quote }}
+      http:
+{{- end }}
+        paths:
+          # The UI (assets and oauth2-proxy's own endpoints under {{ $prefix }}).
+          - path: /ui
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ $name }}
+                port:
+                  name: http
+          # The UI API.
+          - path: /api/v1/ui
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ $name }}
+                port:
+                  name: http
+{{- if $sso.eksIdentityProvider.enabled }}
+---
+# EKS OIDC identity provider: the cluster's API server accepts Keycloak ID tokens issued to
+# client sso.clientID. Associating takes EKS about 15-30 minutes, during which the cluster
+# is UPDATING but serving; until then Kardinal's TokenReview refuses the tokens (401).
+apiVersion: eks.services.k8s.aws/v1alpha1
+kind: IdentityProviderConfig
+metadata:
+  name: {{ .Values.clusterName }}-{{ $sso.eksIdentityProvider.name }}
+  namespace: {{ $sso.eksIdentityProvider.namespace | default .Values.clusterName }}
+spec:
+  clusterName: {{ .Values.clusterName }}
+  oidc:
+    identityProviderConfigName: {{ $sso.eksIdentityProvider.name }}
+    issuerURL: {{ $issuer }}
+    clientID: {{ $sso.clientID }}
+    usernameClaim: {{ $sso.eksIdentityProvider.usernameClaim }}
+    usernamePrefix: {{ $sso.eksIdentityProvider.usernamePrefix | quote }}
+    groupsClaim: {{ $sso.eksIdentityProvider.groupsClaim }}
+    groupsPrefix: {{ $sso.eksIdentityProvider.groupsPrefix | quote }}
+{{- end }}
+{{- range $role, $groups := $sso.roleBindings }}
+{{- if $groups }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: kardinal-sso-{{ $role }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ $fullname }}-{{ $role }}
+subjects:
+  {{- range $groups }}
+  - apiGroup: rbac.authorization.k8s.io
+    kind: Group
+    name: {{ printf "%s%s" $sso.eksIdentityProvider.groupsPrefix . | quote }}
+  {{- end }}
+{{- end }}
+{{- end }}
+{{- end }}

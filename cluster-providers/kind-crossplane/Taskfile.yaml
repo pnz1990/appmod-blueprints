@@ -945,7 +945,7 @@ tasks:
         printf '  Backstage:  https://{{.INGRESS_DOMAIN}}/backstage\n'
         printf '  Keycloak:   https://{{.INGRESS_DOMAIN}}/keycloak\n'
         printf '  Argo WF:    https://{{.INGRESS_DOMAIN}}/argo-workflows\n'
-        printf '  Kargo:      https://{{.INGRESS_DOMAIN}}/\n'
+        printf '  Kargo:      https://{{.INGRESS_DOMAIN}}/kargo\n'
         printf '  Grafana:    https://{{.INGRESS_DOMAIN}}/grafana\n'
         printf '  ArgoCD:     {{.ARGOCD_URL}}\n'
         printf '\n'

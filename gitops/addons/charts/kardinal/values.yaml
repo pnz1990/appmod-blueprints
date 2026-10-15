@@ -19,6 +19,71 @@ bundleAPI:
   clientNamespaceRegexes:
     - '^team-'
 
+# Single sign-on for the Kardinal UI with the platform's Keycloak (templates/sso.yaml).
+# Kardinal's UI has no OIDC login of its own; it authenticates every UI API call with a
+# Kubernetes TokenReview and authorizes it with a SubjectAccessReview for that user. So:
+#   browser -> ALB (/ui, /api/v1/ui) -> oauth2-proxy (Keycloak login, client `clientID`)
+#   -> Kardinal UI with "Authorization: Bearer <Keycloak ID token>"
+#   -> TokenReview: the cluster's API server trusts Keycloak through an EKS OIDC identity
+#      provider (ACK IdentityProviderConfig below), so the user is oidc:<username> with
+#      groups oidc:<group> -> RBAC from the ClusterRoleBindings below.
+# Every UI action, approvals included, is then made and recorded as the Keycloak user.
+# Needs, in the kardinal-promoter values below: ui.auth.tokenReview=true,
+# tokenReview.acceptAPIServerAudience=true (an ID token has the API server's audience for
+# TokenReview, not kardinal-promoter) and ui.allowedHosts=[ingressDomainName]. The registry
+# entry sets them together with sso.enabled.
+sso:
+  enabled: false
+  # Platform domain (CloudFront) the UI is served on, at the root paths /ui and /api/v1/ui
+  # (the UI's asset and API paths are absolute, so it cannot live under a prefix).
+  ingressDomainName: ""
+  # "true": the ALB listens on HTTP:80 and CloudFront terminates TLS (like the other
+  # platform Ingresses); otherwise HTTPS:443 with an ssl-redirect and a host rule.
+  insecure: "false"
+  # Keycloak realm on the platform domain, and the confidential client the keycloak-config
+  # job creates (its secret lands in Secrets Manager <clusterName>/keycloak-clients).
+  issuerPath: /keycloak/realms/platform
+  clientID: kardinal
+  clientSecretProperty: KARDINAL_CLIENT_SECRET
+  oauth2Proxy:
+    image: quay.io/oauth2-proxy/oauth2-proxy:v7.15.5
+    replicas: 1
+    # oauth2-proxy's own endpoints (sign-in, callback) live under /ui so the UI claims no
+    # root path besides /ui and /api/v1/ui. The Keycloak client redirect URI is
+    # https://<ingressDomainName><proxyPrefix>/callback.
+    proxyPrefix: /ui/oauth2
+    # Keycloak's tokens live 1h (realm accessTokenLifespan); refresh the session (and with
+    # it the ID token passed to Kardinal) well before that. The session ends with the
+    # Keycloak SSO session (ssoSessionIdleTimeout 10h).
+    cookieRefresh: 30m
+    cookieExpire: 10h
+    resources:
+      requests:
+        cpu: 10m
+        memory: 32Mi
+      limits:
+        memory: 128Mi
+  eksIdentityProvider:
+    # EKS OIDC identity provider for this cluster, reconciled by ACK (eks.services.k8s.aws
+    # IdentityProviderConfig) in the namespace ACK's IAMRoleSelector for this cluster's EKS
+    # resources covers (default: clusterName). EKS allows one OIDC provider per cluster.
+    # The prefixes keep Keycloak names apart from IAM and ServiceAccount users: no Keycloak
+    # user or group can become system:* or an IAM-mapped name.
+    enabled: true
+    namespace: ""
+    name: keycloak
+    usernameClaim: preferred_username
+    usernamePrefix: "oidc:"
+    groupsClaim: groups
+    groupsPrefix: "oidc:"
+  # Keycloak groups (without the prefix) bound to the chart's user roles on every namespace
+  # (ClusterRoleBindings). user1 is in admin, user2 in editor, user3 in viewer. A Pipeline
+  # namespace can bind more with its own RoleBindings.
+  roleBindings:
+    viewer: [admin, editor, viewer]
+    promoter: [admin]
+    approver: [admin]
+
 # Passed through to the upstream kardinal-promoter chart (dependency, key
 # `kardinal-promoter`). Its values schema rejects unknown keys.
 kardinal-promoter:

@@ -125,6 +125,35 @@ data:
       baseUrl: https://{{ .Values.ingress_domain_name }}/backstage
     organization:
       name: Internal Developer Platform
+    # Home page Quick Links (read by the CNOE Homepage; config replaces its built-in list).
+    # The built-in list links Kargo at the site root and Argo CD at <domain>/argocd, neither
+    # of which is served here. The /img/*.png icons resolve to the image's bundled assets.
+    homepage:
+      quickLinks:
+        - url: /catalog
+          label: Catalog
+          icon: catalog
+{{- if .Values.gitlab_domain_name }}
+        - url: https://{{ .Values.gitlab_domain_name }}
+          label: GitLab
+          iconUrl: /img/gitlab.png
+{{- end }}
+        - url: https://{{ .Values.argocd_hostname }}
+          label: ArgoCD
+          iconUrl: /img/argocd.png
+        - url: https://{{ .Values.ingress_domain_name }}/argo-workflows
+          label: Argo Workflows
+          iconUrl: /img/argo-workflows.png
+{{- if eq (toString .Values.kardinal_enabled) "true" }}
+        # Kardinal (promotion): Keycloak SSO via oauth2-proxy (addons/charts/kardinal, sso).
+        # Its UI paths are absolute, so it is served at /ui/, not under a /kardinal prefix.
+        - url: https://{{ .Values.ingress_domain_name }}/ui/
+          label: Kardinal
+          iconUrl: https://{{ .Values.ingress_domain_name }}/ui/logo.png
+{{- end }}
+        - url: https://{{ .Values.ingress_domain_name }}/keycloak
+          label: Keycloak
+          iconUrl: /img/keycloak.png
     backend:
       # Used for enabling authentication, secret is shared by all backend plugins
       # See https://backstage.io/docs/tutorials/backend-to-backend-auth for

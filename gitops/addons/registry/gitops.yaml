@@ -209,11 +209,31 @@ kardinal:
         values: ['true']
   valuesObject:
     clusterName: '{{.metadata.annotations.aws_cluster_name}}'
+    # Keycloak SSO for the UI at https://<ingress_domain_name>/ui/ (templates/sso.yaml):
+    # oauth2-proxy (Keycloak client `kardinal`, created by the keycloak-config job) in front,
+    # an EKS OIDC identity provider for Keycloak on this cluster (ACK, namespace
+    # <aws_cluster_name>), so Kardinal's TokenReview knows the Keycloak user, and the
+    # chart's user roles bound to the Keycloak groups. The three kardinal-promoter values
+    # below are what that needs; the chart refuses sso.enabled without them.
+    sso:
+      enabled: true
+      ingressDomainName: '{{.metadata.annotations.ingress_domain_name}}'
+      insecure: '{{default "false" .metadata.annotations.insecure}}'
     kardinal-promoter:
       scm:
         apiURL: 'https://{{.metadata.annotations.gitlab_domain_name}}'
         allowedRepositories:
           - '{{.metadata.annotations.gitlab_domain_name}}/**'
+      ui:
+        # The Host oauth2-proxy passes on (the browser's).
+        allowedHosts:
+          - '{{.metadata.annotations.ingress_domain_name}}'
+      tokenReview:
+        # A Keycloak ID token is an API-server-audience token for TokenReview (the OIDC
+        # authenticator is not audience-aware), so it is refused without this. It means
+        # Kardinal also accepts kubeconfig and default ServiceAccount tokens; RBAC still
+        # decides what each caller sees and does.
+        acceptAPIServerAudience: true
   # Replicates the inherited default syncPolicy (a per-addon syncPolicy fully overrides
   # it) and adds ServerSideApply.
   syncPolicy:

@@ -550,7 +550,9 @@ tasks:
         set_var BACKSTAGE_URL "https://${CF}/backstage"
         set_var KEYCLOAK_ADMIN_URL "https://${CF}/keycloak/admin"
         set_var WORKFLOWS_URL "https://${CF}/argo-workflows"
-        set_var KARGO_URL "https://${CF}"
+        set_var KARGO_URL "https://${CF}/kargo"
+        # Kardinal UI (Keycloak SSO). Its paths are absolute, so it is /ui/, not /kardinal.
+        set_var KARDINAL_URL "https://${CF}/ui/"
         set_var JUPYTERHUB_URL "https://${CF}/jupyterhub"
         set_var INGRESS_DOMAIN "${CF}"
         set_var AWS_REGION "{{.AWS_REGION}}"

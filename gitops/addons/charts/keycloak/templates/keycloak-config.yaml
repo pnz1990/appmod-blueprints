@@ -301,6 +301,38 @@ data:
         "/*"
       ]
     }
+  # Kardinal UI: oauth2-proxy in front of it (gitops/addons/charts/kardinal, sso). Its ID
+  # tokens (audience kardinal) are also accepted by the hub API server through the EKS OIDC
+  # identity provider that chart associates, which is how Kardinal knows the user.
+  kardinal-client-payload.json: |
+    {
+      "protocol": "openid-connect",
+      "clientId": "kardinal",
+      "name": "Kardinal Client",
+      "description": "Used for Kardinal UI SSO (oauth2-proxy)",
+      "publicClient": false,
+      "authorizationServicesEnabled": false,
+      "serviceAccountsEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "standardFlowEnabled": true,
+      "frontchannelLogout": true,
+      "attributes": {
+        "saml_idp_initiated_sso_url_name": "",
+        "oauth2.device.authorization.grant.enabled": false,
+        "oidc.ciba.grant.enabled": false,
+        "pkce.code.challenge.method": "S256"
+      },
+      "alwaysDisplayInConsole": false,
+      "rootUrl": "https://${DOMAIN_NAME}/ui/",
+      "baseUrl": "",
+      "redirectUris": [
+        "https://${DOMAIN_NAME}/ui/oauth2/callback"
+      ],
+      "webOrigins": [
+        "https://${DOMAIN_NAME}"
+      ]
+    }
   account-console-client-payload.json: |
     {
       "protocol": "openid-connect",
@@ -867,6 +899,7 @@ spec:
               create_client "Spark" "/var/config/spark-client-payload.json"
               create_client "Airflow" "/var/config/airflow-client-payload.json"
               create_client "Kargo" "/var/config/kargo-client-payload.json"
+              create_client "Kardinal" "/var/config/kardinal-client-payload.json"
               create_client "MCP Client" "/var/config/mcp-client-payload.json"
               create_client "Langfuse" "/var/config/langfuse-client-payload.json"
               # create_client "Argo CD" "/var/config/argocd-client-payload.json"  # Disabled - using EKS Marina managed ArgoCD
@@ -882,6 +915,7 @@ spec:
               add_client_scope "spark" "Spark"
               add_client_scope "airflow" "Airflow"
               add_client_scope "kargo" "Kargo"
+              add_client_scope "kardinal" "Kardinal"
               # add_client_scope "argocd" "Argo CD"  # Disabled - using EKS Marina managed ArgoCD
               add_client_scope "account-console" "Account Console"
               add_client_scope "mcp-client" "MCP Client"
@@ -902,6 +936,7 @@ spec:
               get_client_secret "airflow" "AIRFLOW_CLIENT_SECRET"
               get_client_secret "argo-workflows" "ARGO_WORKFLOWS_CLIENT_SECRET"
               get_client_secret "langfuse" "LANGFUSE_CLIENT_SECRET"
+              get_client_secret "kardinal" "KARDINAL_CLIENT_SECRET"
 
               # ARGOCD_SESSION_TOKEN=$(curl -k -sS http://argocd-server.argocd.svc.cluster.local/argocd/api/v1/session -H 'Content-Type: application/json' -d "{\"username\":\"admin\",\"password\":\"${ARGOCD_PASSWORD}\"}" | jq -r .token)
               ARGOCD_SESSION_TOKEN=""  # Disabled - using EKS Marina managed ArgoCD
@@ -941,6 +976,8 @@ spec:
                 AIRFLOW_CLIENT_ID: airflow
                 LANGFUSE_CLIENT_SECRET: ${LANGFUSE_CLIENT_SECRET}
                 LANGFUSE_CLIENT_ID: langfuse
+                KARDINAL_CLIENT_SECRET: ${KARDINAL_CLIENT_SECRET}
+                KARDINAL_CLIENT_ID: kardinal
               " > /tmp/secret.yaml
 
               ./kubectl apply -f /tmp/secret.yaml
@@ -967,7 +1004,9 @@ spec:
                 --arg afi "airflow" \
                 --arg lf "$LANGFUSE_CLIENT_SECRET" \
                 --arg lfi "langfuse" \
-                '{ARGO_WORKFLOWS_CLIENT_SECRET:$aws,ARGO_WORKFLOWS_CLIENT_ID:$awi,BACKSTAGE_CLIENT_SECRET:$bs,JUPYTERHUB_CLIENT_SECRET:$jh,JUPYTERHUB_CLIENT_ID:$jhi,KUBEFLOW_CLIENT_SECRET:$kf,KUBEFLOW_CLIENT_ID:$kfi,MLFLOW_CLIENT_SECRET:$ml,MLFLOW_CLIENT_ID:$mli,SPARK_CLIENT_SECRET:$sp,SPARK_CLIENT_ID:$spi,AIRFLOW_CLIENT_SECRET:$af,AIRFLOW_CLIENT_ID:$afi,LANGFUSE_CLIENT_SECRET:$lf,LANGFUSE_CLIENT_ID:$lfi}')
+                --arg kd "$KARDINAL_CLIENT_SECRET" \
+                --arg kdi "kardinal" \
+                '{ARGO_WORKFLOWS_CLIENT_SECRET:$aws,ARGO_WORKFLOWS_CLIENT_ID:$awi,BACKSTAGE_CLIENT_SECRET:$bs,JUPYTERHUB_CLIENT_SECRET:$jh,JUPYTERHUB_CLIENT_ID:$jhi,KUBEFLOW_CLIENT_SECRET:$kf,KUBEFLOW_CLIENT_ID:$kfi,MLFLOW_CLIENT_SECRET:$ml,MLFLOW_CLIENT_ID:$mli,SPARK_CLIENT_SECRET:$sp,SPARK_CLIENT_ID:$spi,AIRFLOW_CLIENT_SECRET:$af,AIRFLOW_CLIENT_ID:$afi,LANGFUSE_CLIENT_SECRET:$lf,LANGFUSE_CLIENT_ID:$lfi,KARDINAL_CLIENT_SECRET:$kd,KARDINAL_CLIENT_ID:$kdi}')
 
               if aws secretsmanager describe-secret --secret-id "$SM_SECRET_NAME" --region {{ .Values.aws.region }} >/dev/null 2>&1; then
                 aws secretsmanager put-secret-value --secret-id "$SM_SECRET_NAME" --secret-string "$SM_SECRET_VALUE" --region {{ .Values.aws.region }}

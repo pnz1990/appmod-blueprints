@@ -157,7 +157,7 @@ index dc23f8f..6b161d2 100644
 +      { url: getGitLabUrl(), label: 'GitLab', iconSrc: gitlabIcon, iconAlt: 'GitLab' },
 +      { url: `${domainUrl}/argocd`, label: 'ArgoCD', iconSrc: argocdIcon, iconAlt: 'ArgoCD' },
 +      { url: `${domainUrl}/argo-workflows`, label: 'Argo Workflows', iconSrc: argoWorkflowsIcon, iconAlt: 'Argo Workflows' },
-+      { url: domainUrl, label: 'Kargo', iconSrc: kargoIcon, iconAlt: 'Kargo' },
++      { url: `${domainUrl}/ui/`, label: 'Kardinal', iconSrc: `${domainUrl}/ui/logo.png`, iconAlt: 'Kardinal' },
 +      { url: `${domainUrl}/keycloak`, label: 'Keycloak', iconSrc: keycloakIcon, iconAlt: 'Keycloak' },
      ];
    })();
