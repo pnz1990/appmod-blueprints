@@ -230,6 +230,8 @@ kardinal:
     syncOptions:
       - CreateNamespace=true
       - ServerSideApply=true
+      # Leave the ignored fields below out of the apply too (the aggregated rules).
+      - RespectIgnoreDifferences=true
   ignoreDifferences:
     - group: external-secrets.io
       kind: ExternalSecret
@@ -240,3 +242,10 @@ kardinal:
       jqPathExpressions:
         - '.spec.data[]?.remoteRef.nullBytePolicy'
         - '.spec.dataFrom[]?.extract.nullBytePolicy'
+    # An aggregated ClusterRole (aggregationRule): the chart renders `rules: []` and the
+    # API server's aggregation controller fills in the rules, so it was OutOfSync for ever.
+    - group: rbac.authorization.k8s.io
+      kind: ClusterRole
+      name: kardinal-promoter-admin
+      jsonPointers:
+        - /rules
