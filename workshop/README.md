@@ -52,7 +52,7 @@ mid-install. See [docs/platform/cloudfront-exposure.md](../docs/platform/cloudfr
 | `HUB_VPC_ID` | from CDK bootstrap | IDE VPC ID (triggers ALB+CF creation) |
 | `HUB_SUBNET_IDS` | from CDK bootstrap | Private subnet IDs for the ALB |
 | `ADMIN_ROLE_NAME` | from `WS_PARTICIPANT_ROLE_ARN` | IAM role for cluster admin access |
-| `HUB_KRO_MODE` | `upstream` | `hub.kroMode`: `upstream` = self-managed kro (Graph API, for Kardinal) on the hub instead of the managed kro capability; `managed` = the capability |
+| `HUB_KRO_MODE` | `upstream` | `hub.kroMode`: `upstream` = self-managed kro (Graph API) and the Kardinal promoter on the hub instead of the managed kro capability; `managed` = the capability, without Kardinal |
 
 ---
 

@@ -10,7 +10,7 @@ Addons are grouped by domain:
 |------|--------|----------|
 | `_defaults.yaml` | Shared defaults inherited by all addons | syncPolicy, repo URLs, valueFiles |
 | `core.yaml` | Core infrastructure | argocd, cert-manager, external-secrets, ingress, metrics-server |
-| `gitops.yaml` | GitOps tooling | argo-workflows, argo-rollouts, argo-events, kargo, flux |
+| `gitops.yaml` | GitOps tooling | argo-workflows, argo-rollouts, argo-events, kargo, kardinal, flux |
 | `security.yaml` | Security and policy | keycloak, kyverno, kyverno-policies |
 | `observability.yaml` | Monitoring and logging | grafana, opentelemetry-operator, kube-state-metrics, fluentbit |
 | `platform.yaml` | Platform infrastructure | crossplane, kro, backstage, ACK controllers, devlake |
@@ -101,7 +101,7 @@ When `type: manifest` is set, the Helm rendering block is skipped entirely -- Ar
 | 1 | Ingress | ingress-class-alb |
 | 2 | Certificates | cert-manager |
 | 3 | Security / Observability | kyverno, argo-rollouts, argo-events, grafana-operator, kube-state-metrics, otel, cni-metrics-helper, aws-for-fluentbit |
-| 4 | Platform / GitOps | efs-csi, grafana, kyverno-policies, kyverno-policy-reporter, kargo, flux, crossplane-aws |
+| 4 | Platform / GitOps | efs-csi, grafana, kyverno-policies, kyverno-policy-reporter, kargo, kardinal, flux, crossplane-aws |
 | 5 | ML/AI / Dashboards / Networking | lbc, external-dns, jupyterhub, kubeflow, mlflow, ray-operator, spark-operator, airflow, grafana-dashboards, cw-prometheus |
 | 6 | Security (late) | keycloak |
 | 7 | GitOps (late) | argo-workflows |

@@ -1,0 +1,16 @@
+apiVersion: v2
+name: kardinal
+description: >-
+  Kardinal (kardinal-promoter) as a single platform addon: wraps the upstream
+  kardinal-promoter chart as a dependency (values nested under the
+  `kardinal-promoter:` key) and adds the Secrets it reads, from External Secrets:
+  the controller's GitLab SCM token, a generated Bundle API token for CI, and a
+  ClusterSecretStore that lets the CI namespaces read that token. Needs the Graph
+  API (kro.run/v1alpha1 Graph), so only for a cluster that runs the kro-upstream
+  addon; see the kardinal entry in addons/registry/gitops.yaml.
+type: application
+version: 0.1.0
+dependencies:
+  - name: kardinal-promoter
+    version: '0.11.0'
+    repository: oci://ghcr.io/pnz1990/charts

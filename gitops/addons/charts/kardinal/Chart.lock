@@ -1,0 +1,6 @@
+dependencies:
+- name: kardinal-promoter
+  repository: oci://ghcr.io/pnz1990/charts
+  version: 0.11.0
+digest: sha256:659dd5b9675ecf1e07b018d7b367c99ea24034d38f80ec815a08bd39ef3c09c0
+generated: "2026-10-15T02:31:29.979377258Z"

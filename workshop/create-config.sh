@@ -93,8 +93,9 @@
 #                     NOT required for CloudFront exposure.
 #   HUB_SUBNET_IDS    (default: from CDK bootstrap env) — private subnets for that VPC
 #   HUB_KRO_MODE      (default: upstream) — hub.kroMode: "upstream" = the hub runs the
-#                     self-managed kro-upstream addon (Graph API, needed by Kardinal)
-#                     instead of the EKS managed kro capability; "managed" = the capability.
+#                     self-managed kro-upstream addon (Graph API) and the Kardinal promoter
+#                     on it, instead of the EKS managed kro capability; "managed" = the
+#                     capability (and no Kardinal).
 #                     kind-kro-ack only. Spokes always keep the managed capability.
 #
 

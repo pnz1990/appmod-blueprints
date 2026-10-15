@@ -1,0 +1,61 @@
+# Consumed by this umbrella chart's own templates (templates/secrets.yaml). The registry
+# entry (addons/registry/gitops.yaml) sets clusterName from the cluster secret. The Secret
+# names come from the kardinal-promoter values below (scm.secretRef.name,
+# bundleAPI.tokenSecretRef.name), so the two cannot drift.
+#
+# Hub cluster name: the GitLab token is read from Secrets Manager <clusterName>/secrets,
+# property git_token (user1's PAT, which the workshop's other GitLab clients read too).
+clusterName: ""
+# ClusterSecretStore that reads Secrets Manager (the cluster-secret-store addon).
+secretStore: aws-secrets-manager
+
+bundleAPI:
+  # ClusterSecretStore (kubernetes provider, read-only on the token Secret) through which a
+  # CI namespace copies the Bundle API token with its own ExternalSecret (the cicd-pipeline
+  # RGD, kardinal.enabled). Only namespaces matching these regexes may use it. The token is
+  # a single-tenant admin credential of the Bundle API: whoever holds it can create a Bundle
+  # for any Pipeline. For several tenants, use the Bundle API's TokenReview mode instead.
+  clientStoreName: kardinal-bundle-api
+  clientNamespaceRegexes:
+    - '^team-'
+
+# Passed through to the upstream kardinal-promoter chart (dependency, key
+# `kardinal-promoter`). Its values schema rejects unknown keys.
+kardinal-promoter:
+  scm:
+    # GitLab is the workshop SCM. apiURL and allowedRepositories come from the cluster's
+    # gitlab_domain_name annotation (registry entry).
+    provider: gitlab
+    apiURL: ""
+    # The controller's token (MRs, merge detection). Kardinal requires it to be separate
+    # from every Pipeline's git Secret: it is never labelled kardinal.io/referenceable and
+    # never named in a Pipeline's spec.git.secretRef.
+    secretRef:
+      name: kardinal-scm-token
+      key: token
+    allowedRepositories: []
+  bundleAPI:
+    # POST :8083/api/v1/bundles from the in-cluster CI (Argo Workflows on the hub). The
+    # token is generated once by an External Secrets Password generator and never rotated.
+    tokenSecretRef:
+      name: kardinal-bundle-api-token
+      key: token
+  ui:
+    auth:
+      # Users sign in to the UI with a Kubernetes token for audience kardinal-promoter
+      # (kubectl create token <sa> --audience kardinal-promoter), so UI approvals are
+      # recorded under their own name.
+      tokenReview: true
+  graph:
+    # The Graph ServiceAccount may read health objects here: the hub's Argo CD
+    # Applications (health.type argocd). Flux does not run on the hub.
+    readerNamespaces:
+      - argocd
+  # Same placement as the other platform controllers (see addons/charts/kro-upstream).
+  tolerations:
+    - key: CriticalAddonsOnly
+      operator: Exists
+  nodeSelector:
+    eks.amazonaws.com/compute-type: auto
+    kubernetes.io/os: linux
+    karpenter.sh/nodepool: system

@@ -169,7 +169,7 @@
             "upstream"
           ],
           "default": "managed",
-          "description": "kind-kro-ack only. Which kro serves the hub's kro.run API: 'managed' = the EKS managed kro capability; 'upstream' = no capability, a self-managed upstream kro runs on the hub instead. The two cannot share one API server."
+          "description": "kind-kro-ack only. Which kro serves the hub's kro.run API: 'managed' = the EKS managed kro capability; 'upstream' = no capability, a self-managed upstream kro runs on the hub instead, with the Kardinal promoter (which needs its Graph API). The two kros cannot share one API server."
         }
       }
     },

@@ -1,5 +1,5 @@
 # GitOps tooling addons
-# Wave ordering: 3 (rollouts/events) → 4 (kargo/flux) → 7 (argo-workflows, after keycloak)
+# Wave ordering: 3 (rollouts/events) → 4 (kargo/kardinal/flux) → 7 (argo-workflows, after keycloak)
 
 argo-rollouts:
   namespace: argo-rollouts
@@ -176,3 +176,67 @@ kargo:
         - /status
         - /metadata/generation
         - /metadata/managedFields
+
+# Kardinal (kardinal-promoter): Kubernetes-native promotion (Pipeline / Bundle / PolicyGate)
+# that writes GitOps commits to GitLab and checks the hub's Argo CD Applications. Local
+# umbrella chart over oci://ghcr.io/pnz1990/charts/kardinal-promoter, which adds the Secrets
+# the controller reads (from External Secrets): the GitLab SCM token from
+# <cluster>/secrets.git_token, a generated Bundle API token for CI, and the read-only
+# ClusterSecretStore kardinal-bundle-api through which the team-* CI namespaces copy it.
+#
+# Opt-in and off by default: only a cluster labelled enable_kardinal gets it. On the
+# kind-kro-ack hub the label comes from hub.kroMode=upstream (secrets-manager:seed), with
+# enable_kro_upstream: Kardinal builds one kro Graph (kro.run/v1alpha1) per Bundle, which
+# only the kro-upstream addon serves (wave -3); the EKS managed kro capability does not yet.
+# Hub only: it reads the hub's Argo CD Applications (health.type argocd) where it runs.
+#
+# Wave 4 (Platform / GitOps, with kargo): after kro-upstream and external-secrets. The chart
+# ships 18 CRDs, ClusterRoles, 8 ValidatingAdmissionPolicies and a FlowSchema, so the
+# Application's project must allow cluster-scoped kinds (default does). ServerSideApply, as
+# for kro-upstream, so CRD upgrades are applied (Helm itself never upgrades crds/).
+kardinal:
+  namespace: kardinal-system
+  path: '{{.metadata.annotations.addonsRepoBasepath}}addons/charts/kardinal'
+  # Release "kardinal-promoter": Deployment, ServiceAccount and Service "kardinal-promoter",
+  # the names `kardinal doctor` and the CLI look for.
+  releaseName: kardinal-promoter
+  annotationsAppSet:
+    argocd.argoproj.io/sync-wave: '4'
+  selector:
+    matchExpressions:
+      - key: enable_kardinal
+        operator: In
+        values: ['true']
+  valuesObject:
+    clusterName: '{{.metadata.annotations.aws_cluster_name}}'
+    kardinal-promoter:
+      scm:
+        apiURL: 'https://{{.metadata.annotations.gitlab_domain_name}}'
+        allowedRepositories:
+          - '{{.metadata.annotations.gitlab_domain_name}}/**'
+  # Replicates the inherited default syncPolicy (a per-addon syncPolicy fully overrides
+  # it) and adds ServerSideApply.
+  syncPolicy:
+    automated:
+      selfHeal: true
+      allowEmpty: true
+      prune: false
+    retry:
+      limit: -1
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 10m
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+  ignoreDifferences:
+    - group: external-secrets.io
+      kind: ExternalSecret
+      jsonPointers:
+        - /status
+        - /metadata/generation
+        - /metadata/managedFields
+      jqPathExpressions:
+        - '.spec.data[]?.remoteRef.nullBytePolicy'
+        - '.spec.dataFrom[]?.extract.nullBytePolicy'
