@@ -159,6 +159,8 @@ tasks:
       # here (best-effort, non-blocking) to write spoke-scraper values once AMP is ACTIVE.
       - 'if [ "{{.PROVIDER}}" = "kind-kro-ack" ]; then cd {{.PLATFORM_DIR}} && nohup task kind-kro-ack:secrets-manager:seed-observability >/tmp/seed-observability-reseed.log 2>&1 & echo "  observability re-seed launched in background (PID $!); peeks-observability-seed.timer also retries."; fi'
       - 'printf "{{.C_INFO}}  [%ds] observability re-seeded with spoke scraper data{{.C_RESET}}\n" "$(($(date +%s) - {{.INSTALL_START}}))"'
+      # Kardinal CLI (promotions: kardinal get pipelines -A, inbox, approve) for the participant
+      - task: ide:kardinal-cli
       # Write platform URLs + credentials to ~/.bashrc.d/platform.sh for IDE use
       - task: setup-env
       - |
@@ -507,6 +509,42 @@ tasks:
     cmds:
       - task: idc:configure
 
+
+  ide:kardinal-cli:
+    desc: Install the pinned Kardinal CLI on the IDE (~/.local/bin/kardinal), always aimed at the hub
+    vars:
+      # Keep in step with the kardinal addon's chart (gitops/addons/charts/kardinal/Chart.yaml).
+      KARDINAL_VERSION: v0.11.0
+      # GitHub's sha256 digests of the release assets.
+      KARDINAL_SHA256_AMD64: 948ffba8f46785af920fec6583e1fe897ac26f2c1543374e9bba8a116696950d
+      KARDINAL_SHA256_ARM64: 5b0996b0ad0f883ca8132d35da506974e8261fd1bf6947bbdd2bec6317153a81
+    status:
+      - test "$("$HOME/.local/bin/kardinal" version 2>/dev/null | awk '/^CLI:/ {print $2}')" = "{{.KARDINAL_VERSION}}"
+      - grep -q -- '--context {{.HUB_CLUSTER_NAME}}' "$HOME/.bashrc.d/kardinal.sh"
+    cmds:
+      - |
+        case "$(uname -m)" in
+          x86_64) ARCH=amd64; SUM={{.KARDINAL_SHA256_AMD64}} ;;
+          aarch64|arm64) ARCH=arm64; SUM={{.KARDINAL_SHA256_ARM64}} ;;
+          *) printf '{{.C_ERR}}✗ No Kardinal CLI build for %s{{.C_RESET}}\n' "$(uname -m)"; exit 1 ;;
+        esac
+        T=$(mktemp)
+        trap 'rm -f "$T"' EXIT
+        curl --retry 3 --retry-delay 5 --retry-all-errors -fsSL -o "$T" \
+          "https://github.com/pnz1990/kardinal-promoter/releases/download/{{.KARDINAL_VERSION}}/kardinal-linux-${ARCH}"
+        echo "${SUM}  ${T}" | sha256sum -c --quiet -
+        install -D -m 0755 "$T" "$HOME/.local/bin/kardinal"
+        # The Pipelines, Bundles and Approvals live on the hub, and the workshop switches the
+        # kubectl context between hub and spokes, so the interactive command always names the
+        # hub context (a later --context wins). Completion comes from the binary itself.
+        mkdir -p "$HOME/.bashrc.d"
+        cat > "$HOME/.bashrc.d/kardinal.sh" <<'EOF'
+        # Kardinal CLI (task ide:kardinal-cli): always the hub, where Kardinal runs.
+        alias kardinal='kardinal --context {{.HUB_CLUSTER_NAME}}'
+        command -v kardinal >/dev/null 2>&1 && source <(command kardinal completion bash 2>/dev/null)
+        EOF
+        printf '{{.C_OK}}✓ kardinal %s installed (%s), aimed at context {{.HUB_CLUSTER_NAME}}{{.C_RESET}}\n' \
+          "$("$HOME/.local/bin/kardinal" version 2>/dev/null | awk '/^CLI:/ {print $2}')" "$ARCH"
 
   setup-env:
     desc: Write platform URLs and credentials to ~/.bashrc.d/platform.sh (workshop IDE env vars)
