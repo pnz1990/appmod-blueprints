@@ -1,0 +1,17 @@
+# prod needs a person: the gate is ready only once enough people approved the version for prod
+# (kardinal approve <app> prod; the UI with TokenReview sign-in), and none rejected it. It is
+# injected into every Pipeline of this namespace (scope team) for environments named prod.
+# This replaces Kargo's ProjectConfig autoPromotionEnabled: false on the prod Stage.
+apiVersion: kardinal.io/v1alpha1
+kind: PolicyGate
+metadata:
+  name: prod-approval
+  namespace: {{ .Release.Namespace }}
+  labels:
+    kardinal.io/scope: team
+    kardinal.io/applies-to: prod
+spec:
+  expression: "true"
+  message: "prod needs {{ .Values.prodApprovals }} approval(s): kardinal approve {{ .Values.app }} prod"
+  approval:
+    required: {{ .Values.prodApprovals }}

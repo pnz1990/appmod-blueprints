@@ -1,0 +1,9 @@
+apiVersion: v2
+name: java-kardinal
+description: >-
+  Kardinal promotion of the java app: Pipeline java (dev promotes automatically, prod after
+  one approval), its prod approval gate and its GitLab git Secret. Synced into namespace
+  java-app on the hub by the Argo CD Application java-kardinal (../argocd-application.yaml,
+  created by ../deploy-kardinal.sh). Replaces the Kargo Project java-app-kargo.
+type: application
+version: 0.1.0

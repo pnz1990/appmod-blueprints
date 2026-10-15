@@ -1,0 +1,24 @@
+# Set by the Argo CD Application (../argocd-application.yaml).
+app: java
+gitlab:
+  # https://<GitLab host> ($GITLAB_URL on the IDE). The repo URL must end in .git: Argo CD
+  # does not follow GitLab's redirect, and Kardinal compares the URL with the Applications'.
+  url: ""
+  username: user1
+# Secrets Manager secret and property holding the GitLab PAT, read through External Secrets.
+gitToken:
+  secretStore: aws-secrets-manager
+  key: peeks-hub/secrets
+  property: git_token
+# The Argo CD Applications the CICDPipeline's Backstage template created (java-cicd repo).
+# Kardinal checks them (health.type argocd): Healthy, Synced, and synced at the promoted commit.
+environments:
+  dev:
+    argocdApp: ""     # default <app>-dev-cd
+  prod:
+    argocdApp: ""     # default <app>-prod-cd
+# How long a promoted commit may take to be synced and Healthy (the canary and its analysis
+# gates on the spoke count: the AppmodService turns Ready only once its Rollout is Healthy).
+healthTimeout: 20m
+# Approvals prod needs (kardinal approve <app> prod, or the Kardinal UI).
+prodApprovals: 1

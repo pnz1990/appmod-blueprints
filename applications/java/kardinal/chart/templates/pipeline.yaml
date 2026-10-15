@@ -1,0 +1,45 @@
+# One Pipeline per application. A Bundle (a version: the image CI built) promotes through
+# dev, then prod. Each environment's PromotionStep clones the GitLab repo, sets the image in
+# deployment/<env>/application.yaml, commits and pushes to main, asks Argo CD to sync
+# (the argocd.argoproj.io/refresh annotation, instead of Kargo's argocd-update step) and waits
+# until the environment's Application is Healthy and Synced at that commit.
+#
+# Both environments push straight to main (approval: auto); prod waits for the approval
+# gate (prod-approval.yaml) before its PromotionStep is even created.
+#
+# The image goes to ONE path: spec.image of the kro AppmodService template
+# (deployment/templates/kro), the full image reference. Kargo tried this and the KubeVela
+# path (spec.components.0.properties.image) and ignored the one that failed; Kardinal fails a
+# step whose path does not exist, so a KubeVela application.yaml needs
+# spec.components[0].properties.image here instead (and Kardinal cannot bump KubeVela's
+# app.oam.dev/publishVersion annotation: keys with '.' or '/' are not addressable).
+apiVersion: kardinal.io/v1alpha1
+kind: Pipeline
+metadata:
+  name: {{ .Values.app }}
+  namespace: {{ .Release.Namespace }}
+spec:
+  git:
+    url: {{ include "java-kardinal.gitURL" . }}
+    branch: main
+    secretRef:
+      name: gitlab-git
+  environments:
+    {{- range $env := list "dev" "prod" }}
+    - name: {{ $env }}
+      path: deployment/{{ $env }}
+      approval: auto
+      update:
+        strategy: yaml
+        yaml:
+          updates:
+            - file: application.yaml
+              path: spec.image
+              value: image
+      health:
+        type: argocd
+        argocd:
+          name: {{ index $.Values.environments $env "argocdApp" | default (printf "%s-%s-cd" $.Values.app $env) }}
+          namespace: argocd
+        timeout: {{ $.Values.healthTimeout }}
+    {{- end }}
