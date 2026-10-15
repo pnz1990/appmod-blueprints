@@ -1,6 +1,6 @@
 # Progressive Delivery and Promotion
 
-How the platform rolls out new versions safely (Argo Rollouts) and promotes them across environments (Kargo).
+How the platform rolls out new versions safely (Argo Rollouts) and promotes them across environments (Kardinal).
 
 ## Strategies
 
@@ -52,29 +52,33 @@ Three gate types, all developer-configured, platform-executed:
 
 **Principle — developers own "healthy."** The platform supplies the mechanism (canary + analysis); each team defines the metrics and thresholds that define health for *their* app. Gates are config in the OAM manifest, not platform code.
 
-## Multi-stage promotion — Kargo
+## Multi-stage promotion — Kardinal
 
-Kargo orchestrates dev→prod promotion GitOps-natively. Resources:
+Kardinal ([kardinal-promoter](https://github.com/pnz1990/kardinal-promoter)) orchestrates dev→prod promotion GitOps-natively from the hub: addon `kardinal`, which needs the self-managed upstream kro with its Graph feature (addon `kro-upstream`, `hub.kroMode: upstream`). Resources, in namespace `<app>-app` on the hub:
 
-- **Project** — Kargo namespace for the app (`<app>-kargo`).
-- **Warehouse** — watches ECR for new images (produces "Freight").
-- **Stages** — `dev` (auto-promote) and `prod` (manual approval).
-- **PromotionTask** — how to update the app's manifests for a stage.
+- **Pipeline** — one per app: the app's GitLab repo, its environments in order (dev, then prod), how to update each one (`update.strategy: yaml` on `deployment/<env>/application.yaml` `spec.image`) and how to check it (`health.type: argocd` on `<app>-<env>-cd`).
+- **Bundle** — one version: the image CI built. CI creates it through Kardinal's Bundle API right after the image push (`kardinal.enabled` on the CICDPipeline). A newer Bundle supersedes one still in flight.
+- **PolicyGate** — CEL gates, injected per environment; `prod-approval` (scope team, applies to prod) waits for one approval.
+- **PromotionStep** — one per environment per Bundle (kro creates it from the Bundle's Graph): clone → update → commit → push → ask Argo CD to sync → wait until the Application is Healthy and Synced at that commit.
+
+The Backstage `cicd-pipeline` template creates all of it (parameter `promoter: kardinal`, the default).
 
 Flow:
 ```
-Argo Workflows builds image → Warehouse detects it
-   → dev stage AUTO-promotes: commits image into deployment/dev/application.yaml → ArgoCD deploys dev
-   → human clicks "Promote" in Kargo UI for prod
-   → prod stage commits the SAME image into deployment/prod/application.yaml → ArgoCD deploys prod
+Argo Workflows builds image → CI creates a Bundle (Bundle API)
+   → dev: Kardinal commits the image into deployment/dev/application.yaml → ArgoCD deploys dev → Healthy
+   → prod waits at prod-approval: Approve in the Kardinal UI (https://<domain>/ui/, Keycloak SSO)
+     or `kardinal approve <app> prod -n <app>-app` on the IDE
+   → prod: Kardinal commits the SAME image into deployment/prod/application.yaml → ArgoCD deploys prod
 ```
 
 Key properties:
 - **Same-artifact promotion** — prod runs the exact image that passed dev; no rebuild, no drift.
-- **Auto dev / manual prod** — speed in lower environments, an approval gate for production.
-- **GitOps-native** — every promotion is a Git commit: auditable, reversible.
+- **Auto dev / approved prod** — speed in lower environments, an approval gate for production. An approval records who gave it, as the API server authenticated them (`oidc:user1` from the UI, the IAM identity from the CLI).
+- **GitOps-native** — every promotion is a Git commit (`[kardinal] Promote <bundle> to <env>`): auditable, reversible.
+- **Explainable** — `kardinal explain <app> -n <app>-app` shows each gate's expression and why it blocks.
 
-Verify: `kubectl get warehouse,stages -n <app>-kargo -o wide`; confirm the prod manifest's `image:` updated after promotion.
+Verify: `kardinal get pipelines -A`, `kardinal inbox -A`, `kubectl get bundles,promotionsteps -n <app>-app`; confirm the prod manifest's `image:` changed after the promotion.
 
 ## Watching a rollout
 

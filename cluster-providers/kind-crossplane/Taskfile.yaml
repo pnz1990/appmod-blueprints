@@ -945,7 +945,6 @@ tasks:
         printf '  Backstage:  https://{{.INGRESS_DOMAIN}}/backstage\n'
         printf '  Keycloak:   https://{{.INGRESS_DOMAIN}}/keycloak\n'
         printf '  Argo WF:    https://{{.INGRESS_DOMAIN}}/argo-workflows\n'
-        printf '  Kargo:      https://{{.INGRESS_DOMAIN}}/kargo\n'
         printf '  Grafana:    https://{{.INGRESS_DOMAIN}}/grafana\n'
         printf '  ArgoCD:     {{.ARGOCD_URL}}\n'
         printf '\n'
@@ -1193,23 +1192,11 @@ tasks:
         # (partial) install left out — and never rotates values live consumers
         # depend on. First run: no secret yet, start from {} and create-then-put.
         EXISTING=$(aws secretsmanager get-secret-value --secret-id "$SECRET_KEY" --region {{.AWS_REGION}} --query SecretString --output text 2>/dev/null || echo "{}")
-        # Reuse existing hash/key on re-runs (don't rotate them out from under Kargo etc.)
-        USER_PASS_HASH=$(echo "$EXISTING" | jq -r '.user_password_hash // ""')
-        if [ -z "$USER_PASS_HASH" ]; then
-          # One shared implementation for all four hash sites across both providers —
-          # see scripts/bcrypt-hash.sh. It exits non-zero rather than emitting an empty
-          # value, so errexit aborts here instead of silently breaking Kargo admin login.
-          USER_PASS_HASH=$(bash "{{.ROOT_DIR}}/scripts/bcrypt-hash.sh" "$USER_PASS")
-        fi
-        USER_PASS_KEY=$(echo "$EXISTING" | jq -r '.user_password_key // ""')
-        if [ -z "$USER_PASS_KEY" ]; then
-          USER_PASS_KEY=$(echo -n "$USER_PASS" | base64)
-        fi
+        # (No user_password_hash / user_password_key any more: only Kargo's admin login
+        # read them, and Kardinal replaced Kargo. A secret seeded before keeps them.)
         UPDATED=$(echo "$EXISTING" | jq \
           --arg user_password "$USER_PASS" \
-          --arg user_password_hash "$USER_PASS_HASH" \
-          --arg user_password_key "$USER_PASS_KEY" \
-          '. + {user_password: $user_password, user_password_hash: $user_password_hash, user_password_key: $user_password_key}')
+          '. + {user_password: $user_password}')
         # DevLake credentials. These belong here (NOT in seed-observability) so the
         # devlake-encryption-secret ExternalSecret resolves during the normal install,
         # independent of the AMP/AMG observability flow — which waits up to 30 min for
@@ -1363,21 +1350,6 @@ tasks:
         else
           BS_PG_PASS=$(echo "$EXISTING" | jq -r '.backstage_postgres_password')
         fi
-        # Kargo admin credentials: bcrypt hash of user password + random signing key.
-        # Reuse existing values on re-runs so we don't rotate them out from under Kargo.
-        KARGO_HASH=$(echo "$EXISTING" | jq -r '.user_password_hash // ""')
-        if [ -z "$KARGO_HASH" ]; then
-          # One shared implementation for all four hash sites across both providers —
-          # see scripts/bcrypt-hash.sh for the fallback order and for why an empty hash
-          # is never written (Kargo authenticates admin logins against it; ESO syncs an
-          # empty string faithfully, so the platform looks healthy while login is
-          # broken). The script exits non-zero instead, so errexit aborts this task.
-          KARGO_HASH=$(bash "{{.ROOT_DIR}}/scripts/bcrypt-hash.sh" "$USER_PASS")
-        fi
-        KARGO_KEY=$(echo "$EXISTING" | jq -r '.user_password_key // ""')
-        if [ -z "$KARGO_KEY" ]; then
-          KARGO_KEY=$(openssl rand -base64 30 | tr -d '/+=' | head -c 40)
-        fi
         UPDATED=$(echo "$EXISTING" | jq \
           --arg amp_url "${AMP_ENDPOINT}api/v1/remote_write" \
           --arg amp_query_url "$AMP_ENDPOINT" \
@@ -1386,9 +1358,7 @@ tasks:
           --arg grafana_url "$AMG_ENDPOINT" \
           --arg user_password "$USER_PASS" \
           --arg backstage_postgres_password "$BS_PG_PASS" \
-          --arg user_password_hash "$KARGO_HASH" \
-          --arg user_password_key "$KARGO_KEY" \
-          '. + {amp_endpoint_url: $amp_query_url, amp_region: $amp_region, grafana_api_key: $grafana_api_key, grafana_url: $grafana_url, user_password: $user_password, backstage_postgres_password: $backstage_postgres_password, user_password_hash: $user_password_hash, user_password_key: $user_password_key}')
+          '. + {amp_endpoint_url: $amp_query_url, amp_region: $amp_region, grafana_api_key: $grafana_api_key, grafana_url: $grafana_url, user_password: $user_password, backstage_postgres_password: $backstage_postgres_password}')
         # Generate the grafana_mysql_password the grafana-dashboards
         # ExternalSecret expects, but only if it isn't already there
         # (so re-runs don't rotate it out from under live consumers).

@@ -17,7 +17,6 @@ enabledAddons:
   argo_events: true
   argo_rollouts: true
   argo_workflows: true
-  kargo: true
   flux: false
   # Security
   keycloak: true

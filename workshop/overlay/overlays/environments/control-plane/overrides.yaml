@@ -9,9 +9,8 @@
 # solution. Any consumer of the solution can provide their own fleet-config repo with
 # an equivalent file to customize their own control-plane environment.
 #
-# Kargo ingress is handled separately via
-# overlays/environments/control-plane/kargo/values.yaml (loaded by the kargo
-# ApplicationSet directly) — not here.
+# Per-addon hub values live next to this file in <addon>/values.yaml (loaded by each
+# addon's ApplicationSet directly), and workshop-wide addon values in configs/<addon>/.
 #
 # Add any other control-plane addon overrides below as needed:
 #

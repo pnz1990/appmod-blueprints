@@ -4,7 +4,7 @@ How the platform gives one identity across all tools, credential-free AWS access
 
 ## Keycloak — unified SSO
 
-Keycloak is the identity backbone. Every platform tool — Backstage, ArgoCD, Argo Workflows, Kargo, Grafana, GitLab, JupyterHub, Ray Dashboard — federates authentication through Keycloak via OIDC/SAML.
+Keycloak is the identity backbone. Every platform tool — Backstage, ArgoCD, Argo Workflows, Kardinal (through oauth2-proxy), Grafana, GitLab, JupyterHub, Ray Dashboard — federates authentication through Keycloak via OIDC/SAML.
 
 - **One login, access everything.** A user authenticates once; the session propagates across the toolchain ("Log in via Keycloak").
 - **Decoupled identity.** Identity management is separated from the portal and the CI/CD tools, so auth policy changes in one place.

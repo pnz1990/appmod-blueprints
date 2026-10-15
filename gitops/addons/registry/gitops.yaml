@@ -1,5 +1,5 @@
 # GitOps tooling addons
-# Wave ordering: 3 (rollouts/events) → 4 (kargo/kardinal/flux) → 7 (argo-workflows, after keycloak)
+# Wave ordering: 3 (rollouts/events) → 4 (kardinal/flux) → 7 (argo-workflows, after keycloak)
 
 argo-rollouts:
   namespace: argo-rollouts
@@ -72,111 +72,6 @@ argo-workflows:
         - /metadata/resourceVersion
         - /metadata/managedFields
 
-kargo:
-  namespace: kargo
-  # Local umbrella chart: wraps the upstream Kargo chart as a dependency (values
-  # nested under the `kargo:` key) and adds the platform API Ingress, rendered
-  # locally so it can switch ALB listeners on the `insecure` flag with a block
-  # conditional — like the other platform ingresses (argo-workflows/backstage/
-  # keycloak). One `enable_kargo` flip brings up Kargo + its ingress together.
-  path: '{{.metadata.annotations.addonsRepoBasepath}}addons/charts/kargo'
-  annotationsAppSet:
-    argocd.argoproj.io/sync-wave: '4'
-  selector:
-    matchExpressions:
-      - key: enable_kargo
-        operator: In
-        values: ['true']
-  valuesObject:
-    # Consumed by this umbrella chart's own templates (the API Ingress).
-    global:
-      ingress_domain_name: '{{.metadata.annotations.ingress_domain_name}}'
-      # insecure=true  → ALB serves HTTP:80 (CloudFront terminates TLS upstream).
-      # insecure=false → ALB serves HTTPS:443 + ssl-redirect. See templates/ingress.yaml.
-      insecure: '{{default "false" .metadata.annotations.insecure}}'
-    # Passed through to the upstream Kargo chart (dependency, key `kargo`).
-    kargo:
-      api:
-        host: '{{.metadata.annotations.ingress_domain_name}}'
-        basePath: /kargo
-        tls:
-          enabled: false
-          terminatedUpstream: true
-        ingress:
-          # Disabled: the Ingress is rendered by this chart's own templates/ingress.yaml
-          # (insecure-aware) instead of by the upstream chart.
-          enabled: false
-        argocd:
-          urls:
-            argocd: https://{{.metadata.annotations.ingress_domain_name}}/argocd
-        oidc:
-          # Kargo SSO via Keycloak (public client 'kargo' is seeded in the platform
-          # realm by the keycloak-config job; PKCE flow, no client secret required).
-          # NOTE: all four of enabled/issuerURL/clientID are required — the chart only
-          # renders the OIDC_* config (and the UI "Log in with SSO" button) when they
-          # are set. With issuerURL alone the chart silently falls back to admin-only
-          # login (ADMIN_ACCOUNT_ENABLED) and no SSO is offered.
-          enabled: true
-          issuerURL: https://{{.metadata.annotations.ingress_domain_name}}/keycloak/realms/platform
-          clientID: kargo
-          cliClientID: kargo
-          # Request the 'groups' scope so the groups claim is returned (admin mapping below).
-          additionalScopes:
-            - groups
-          # user1 is in the Keycloak '/admin' group; the realm's 'groups' client scope
-          # emits a 'groups' claim, so grant Kargo admin to members of '/admin'.
-          admins:
-            claims:
-              groups:
-                - admin
-        secret:
-          name: kargo-admin-credentials
-      extraObjects:
-        - apiVersion: external-secrets.io/v1
-          kind: ExternalSecret # For Kargo Admin Credentials
-          metadata:
-            name: kargo-admin-credentials
-            namespace: kargo
-            annotations:
-              argocd.argoproj.io/sync-wave: '-1'
-          spec:
-            refreshInterval: '30s'
-            secretStoreRef:
-              name: aws-secrets-manager
-              kind: ClusterSecretStore
-            target:
-              name: kargo-admin-credentials
-              creationPolicy: Owner
-              deletionPolicy: Retain
-              template:
-                engineVersion: v2
-                mergePolicy: Replace
-                data:
-                  ADMIN_ACCOUNT_PASSWORD_HASH: '{{ printf "{{ `{{ .KARGO_ADMIN_PASSWORD_HASH }}` }}" }}'
-                  ADMIN_ACCOUNT_TOKEN_SIGNING_KEY: '{{ printf "{{ `{{ .KARGO_ADMIN_PASSWORD_KEY }}` }}" }}'
-            data:
-              - secretKey: KARGO_ADMIN_PASSWORD_HASH
-                remoteRef:
-                  key: '{{.metadata.annotations.aws_cluster_name}}/secrets'
-                  property: user_password_hash
-                  conversionStrategy: Default
-                  decodingStrategy: None
-                  metadataPolicy: None
-              - secretKey: KARGO_ADMIN_PASSWORD_KEY
-                remoteRef:
-                  key: '{{.metadata.annotations.aws_cluster_name}}/secrets'
-                  property: user_password_key
-                  conversionStrategy: Default
-                  decodingStrategy: None
-                  metadataPolicy: None
-  ignoreDifferences:
-    - group: external-secrets.io
-      kind: ExternalSecret
-      jsonPointers:
-        - /status
-        - /metadata/generation
-        - /metadata/managedFields
-
 # Kardinal (kardinal-promoter): Kubernetes-native promotion (Pipeline / Bundle / PolicyGate)
 # that writes GitOps commits to GitLab and checks the hub's Argo CD Applications. Local
 # umbrella chart over oci://ghcr.io/pnz1990/charts/kardinal-promoter, which adds the Secrets
@@ -190,7 +85,7 @@ kargo:
 # only the kro-upstream addon serves (wave -3); the EKS managed kro capability does not yet.
 # Hub only: it reads the hub's Argo CD Applications (health.type argocd) where it runs.
 #
-# Wave 4 (Platform / GitOps, with kargo): after kro-upstream and external-secrets. The chart
+# Wave 4 (Platform / GitOps, with flux): after kro-upstream and external-secrets. The chart
 # ships 18 CRDs, ClusterRoles, 8 ValidatingAdmissionPolicies and a FlowSchema, so the
 # Application's project must allow cluster-scoped kinds (default does). ServerSideApply, as
 # for kro-upstream, so CRD upgrades are applied (Helm itself never upgrades crds/).

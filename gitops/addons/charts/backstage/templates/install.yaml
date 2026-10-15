@@ -126,8 +126,9 @@ data:
     organization:
       name: Internal Developer Platform
     # Home page Quick Links (read by the CNOE Homepage; config replaces its built-in list).
-    # The built-in list links Kargo at the site root and Argo CD at <domain>/argocd, neither
-    # of which is served here. The /img/*.png icons resolve to the image's bundled assets.
+    # The image's built-in list links <domain>/argocd, which this platform does not serve
+    # (Argo CD is the EKS managed capability). The /img/*.png icons resolve to the image's
+    # bundled assets.
     homepage:
       quickLinks:
         - url: /catalog

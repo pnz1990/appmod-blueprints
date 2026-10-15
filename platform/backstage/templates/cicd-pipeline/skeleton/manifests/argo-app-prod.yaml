@@ -13,7 +13,6 @@ metadata:
     backstage.io/created-by: backstage-template
     cicd.kro.run/application-name: ${{values.appname}}
     cicd.kro.run/environment: prod
-    kargo.akuity.io/authorized-stage: ${{values.appname}}-app-kargo:prod
   finalizers:
   - resources-finalizer.argocd.argoproj.io
 spec:

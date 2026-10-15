@@ -247,7 +247,7 @@ SAML and Argo Workflows SSO all fail because the Keycloak login form is unreacha
 **Root cause**: All these ingresses share one ALB (`ingressClassName: platform`). The AWS Load
 Balancer Controller orders listener rules within a group by
 `alb.ingress.kubernetes.io/group.order` (ascending). An ingress **without** that annotation is
-interleaved by creation order, so a `/*` catch-all (e.g. Kargo) can land at a LOWER priority
+interleaved by creation order, so a `/*` catch-all can land at a LOWER priority
 number than `/keycloak` and match everything first.
 
 **Diagnosis**:
@@ -263,17 +263,12 @@ aws elbv2 describe-rules --listener-arn "$L" --query 'Rules[].{p:Priority,path:C
 annotations:
   alb.ingress.kubernetes.io/group.order: '100'
 ```
-**Note on Kargo**: Kargo no longer uses a root catch-all ingress, so it is no longer a source
-of this problem. The `kargo` umbrella chart (`gitops/addons/charts/kargo`) renders its own
-insecure-aware Ingress at `path: /kargo` (pathType `Prefix`) with a `url-rewrite` transform that
-strips the prefix before forwarding, and Kargo runs with `api.basePath: /kargo` (set in the
-registry, `gitops/addons/registry/gitops.yaml`). Its SPA therefore emits `<base href="/kargo/">`
-and loads assets/API under `/kargo/` — verified on a fresh deploy (`/kargo/` and
-`/kargo/assets/*.js|css` return 200, `/keycloak` still returns 302). Because `/kargo` is a
-specific prefix (not `/`), it cannot shadow `/keycloak` and needs no `group.order`. The old
-workshop overlay that enabled a root ingress (`api.ingress` at `/` with `group.order: '100'`) has
-been removed as dead config. The `group.order` guidance above still applies to any *other*
-service you deliberately expose at the host root (`/`).
+**Note on Kardinal**: the Kardinal UI's asset and API paths are absolute, so it is served at the
+root-level prefixes `/ui` and `/api/v1/ui` (Ingress `kardinal-ui`, `gitops/addons/charts/kardinal`,
+through oauth2-proxy). They are specific prefixes, not `/`, so they cannot shadow `/keycloak` and
+need no `group.order`; no other platform Ingress uses them (checked when it was added). The
+`group.order` guidance above still applies to any service you deliberately expose at the host
+root (`/`).
 
 ### CloudFront platform URLs hang (curl 000): VPC origin points to a stale/recreated ALB
 

@@ -278,7 +278,7 @@ enabledAddons:
 | 1 | Ingress | ingress-class-alb |
 | 2 | Certificates | cert-manager |
 | 3 | Security/Observability | kyverno, argo-rollouts, argo-events, crossplane-base, grafana-operator, kube-state-metrics, otel |
-| 4 | Platform | efs-csi, grafana, kyverno-policies, kyverno-policy-reporter, kargo, flux, crossplane-aws |
+| 4 | Platform | efs-csi, grafana, kyverno-policies, kyverno-policy-reporter, kardinal, flux, crossplane-aws |
 | 5 | Networking/ML/AI | lbc, external-dns, jupyterhub, kubeflow, mlflow, ray-operator, spark-operator, airflow, grafana-dashboards, cw-prometheus |
 | 6 | Security | keycloak |
 | 7 | GitOps | argo-workflows |

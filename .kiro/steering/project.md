@@ -39,7 +39,7 @@ Companion repo: [platform-engineering-on-eks](../platform-engineering-on-eks/) h
 - **GitOps:** ArgoCD ApplicationSets with sync waves (-5 to 6)
 - **Kubernetes:** EKS Auto Mode + EKS Capabilities (ArgoCD, Kro, ACK)
 - **IDP:** Backstage with Keycloak SSO
-- **Progressive delivery:** Argo Rollouts, Kargo
+- **Progressive delivery:** Argo Rollouts, Kardinal
 - **Observability:** CloudWatch, Grafana, DevLake (DORA metrics)
 - **Task runner:** Taskfile (`Taskfile.yml`)
 - **CI:** GitHub Actions (`.github/workflows/`)

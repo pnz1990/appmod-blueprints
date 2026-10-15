@@ -272,35 +272,6 @@ data:
         "/*"
       ]
     }
-  kargo-client-payload.json: |
-    {
-      "protocol": "openid-connect",
-      "clientId": "kargo",
-      "name": "Kargo Client",
-      "description": "Used for Kargo SSO",
-      "publicClient": true,
-      "authorizationServicesEnabled": false,
-      "serviceAccountsEnabled": false,
-      "implicitFlowEnabled": false,
-      "directAccessGrantsEnabled": true,
-      "standardFlowEnabled": true,
-      "frontchannelLogout": true,
-      "attributes": {
-        "saml_idp_initiated_sso_url_name": "",
-        "oauth2.device.authorization.grant.enabled": false,
-        "oidc.ciba.grant.enabled": false
-      },
-      "alwaysDisplayInConsole": false,
-      "rootUrl": "https://${DOMAIN_NAME}/kargo",
-      "baseUrl": "",
-      "redirectUris": [
-        "https://${DOMAIN_NAME}/kargo/login",
-        "https://localhost/auth/callback"
-      ],
-      "webOrigins": [
-        "/*"
-      ]
-    }
   # Kardinal UI: oauth2-proxy in front of it (gitops/addons/charts/kardinal, sso). Its ID
   # tokens (audience kardinal) are also accepted by the hub API server through the EKS OIDC
   # identity provider that chart associates, which is how Kardinal knows the user.
@@ -807,6 +778,19 @@ spec:
                 keycloak_post "/admin/realms/${REALM_NAME}/users/${USER_ID}/role-mappings/realm" "/tmp/role-assignment.json" "Role assignment"
               }
 
+              # Delete a client the platform no longer uses (idempotent): stacks installed
+              # before it was retired still have it, and create_client never removes one.
+              delete_client() {
+                local client_id_name=$1
+                local id
+                id=$(keycloak_get "/admin/realms/${REALM_NAME}/clients" ".[] | select(.clientId == \"${client_id_name}\") | .id" 2>/dev/null) || true
+                if [ -n "${id}" ]; then
+                  HTTP_STATUS=$(curl -sS -w "%{http_code}" -o /tmp/response.txt -H "Authorization: bearer ${KEYCLOAK_TOKEN}" \
+                    -X DELETE "${KEYCLOAK_URL}/admin/realms/${REALM_NAME}/clients/${id}")
+                  echo "deleted retired client ${client_id_name}: HTTP ${HTTP_STATUS}"
+                fi
+              }
+
               # Get client secret function
               get_client_secret() {
                 local client_id_name=$1
@@ -898,13 +882,16 @@ spec:
               create_client "MLFlow" "/var/config/mlflow-client-payload.json"
               create_client "Spark" "/var/config/spark-client-payload.json"
               create_client "Airflow" "/var/config/airflow-client-payload.json"
-              create_client "Kargo" "/var/config/kargo-client-payload.json"
               create_client "Kardinal" "/var/config/kardinal-client-payload.json"
               create_client "MCP Client" "/var/config/mcp-client-payload.json"
               create_client "Langfuse" "/var/config/langfuse-client-payload.json"
               # create_client "Argo CD" "/var/config/argocd-client-payload.json"  # Disabled - using EKS Marina managed ArgoCD
               create_client "Account Console" "/var/config/account-console-client-payload.json"
               create_client "Amazon Grafana" "/var/config/grafana-client-payload.json"
+
+              echo "deleting retired clients"
+              # kargo: Kardinal replaced Kargo (gitops/addons/charts/kardinal, client kardinal).
+              delete_client "kargo"
 
               echo "adding client scopes to clients"
               add_client_scope "argo-workflows" "Argo Workflows"
@@ -914,7 +901,6 @@ spec:
               add_client_scope "mlflow" "MLFlow"
               add_client_scope "spark" "Spark"
               add_client_scope "airflow" "Airflow"
-              add_client_scope "kargo" "Kargo"
               add_client_scope "kardinal" "Kardinal"
               # add_client_scope "argocd" "Argo CD"  # Disabled - using EKS Marina managed ArgoCD
               add_client_scope "account-console" "Account Console"

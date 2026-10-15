@@ -1,6 +1,6 @@
 ---
 name: eks-platform-engineering
-description: Use whenever someone is designing or building an Internal Developer Platform (IDP) or doing platform engineering on Amazon EKS — phrased as "build a developer platform", "self-service for developers", "golden paths", "IDP", or "set up Backstage / ArgoCD / Kargo". Covers the opinionated platform stack — developer portal (Backstage), GitOps delivery (ArgoCD, Argo Workflows), progressive delivery (Argo Rollouts) and multi-stage promotion (Kargo), infrastructure abstraction (ACK, kro), the developer-facing app abstraction (Backstage templates + kro, or KubeVela/OAM), self-service provisioning, hub-and-spoke topology with the GitOps Bridge, identity/SSO (Keycloak, Pod Identity), measuring success (DORA, Apache DevLake), GenAI-assisted platform engineering (Kiro), and golden paths for AI/ML and data. Trigger even if "platform engineering" is never said. Skip for single-cluster EKS architecture or cost/ops tuning with no platform angle (use eks-best-practices); for standalone Terraform use terraform-skill.
+description: Use whenever someone is designing or building an Internal Developer Platform (IDP) or doing platform engineering on Amazon EKS — phrased as "build a developer platform", "self-service for developers", "golden paths", "IDP", or "set up Backstage / ArgoCD / Kardinal". Covers the opinionated platform stack — developer portal (Backstage), GitOps delivery (ArgoCD, Argo Workflows), progressive delivery (Argo Rollouts) and multi-stage promotion (Kardinal), infrastructure abstraction (ACK, kro), the developer-facing app abstraction (Backstage templates + kro, or KubeVela/OAM), self-service provisioning, hub-and-spoke topology with the GitOps Bridge, identity/SSO (Keycloak, Pod Identity), measuring success (DORA, Apache DevLake), GenAI-assisted platform engineering (Kiro), and golden paths for AI/ML and data. Trigger even if "platform engineering" is never said. Skip for single-cluster EKS architecture or cost/ops tuning with no platform angle (use eks-best-practices); for standalone Terraform use terraform-skill.
 ---
 
 # EKS Platform Engineering
@@ -13,7 +13,7 @@ This is the "how do I build a platform that other teams self-serve from" skill. 
 
 **Activate when the user wants to:**
 - Build or design an Internal Developer Platform / developer self-service on EKS
-- Stand up or wire together a developer portal (Backstage), GitOps (ArgoCD/Argo Workflows), progressive delivery (Argo Rollouts), or promotion (Kargo)
+- Stand up or wire together a developer portal (Backstage), GitOps (ArgoCD/Argo Workflows), progressive delivery (Argo Rollouts), or promotion (Kardinal)
 - Define golden paths — standardized, paved ways for app teams to ship
 - Abstract AWS resources behind Kubernetes (ACK, kro) or applications behind a developer-facing model (Backstage templates + kro, or OAM/KubeVela)
 - Enable self-service environment or resource provisioning
@@ -50,7 +50,7 @@ This is the recommended, integration-tested stack. Each layer has one default to
 | **GitOps CD** | ArgoCD | Reconciles cluster state from Git; deploys platform add-ons and apps |
 | **CI / orchestration** | Argo Workflows (+ Argo Events) | Container-native build pipelines, webhook-triggered |
 | **Progressive delivery** | Argo Rollouts | Canary/blue-green with functional, performance, and metrics gates + auto-rollback |
-| **Multi-stage promotion** | Kargo | GitOps-native dev→prod promotion of the *same* artifact |
+| **Multi-stage promotion** | Kardinal | GitOps-native dev→prod promotion of the *same* artifact |
 | **AWS resource provisioning** | ACK (AWS Controllers for K8s) | AWS resources (S3, DynamoDB, IAM, …) as Kubernetes CRDs |
 | **Resource composition** | kro | Compose many resources into one CRD (e.g. `CICDPipeline`, `EKSCluster`) |
 | **Application abstraction** | Backstage templates + kro | Developer-facing app model — a Backstage template gathers parameters and a kro `ResourceGraphDefinition` renders the underlying workload + dependencies (KubeVela/OAM is a supported alternative — see note) |
@@ -63,7 +63,7 @@ This is the recommended, integration-tested stack. Each layer has one default to
 >
 > **Application-abstraction choice:** the default above (Backstage templates + kro) keeps the platform on one composition engine. **KubeVela / OAM** is a fully supported alternative that gives a richer `Application` model (Components + Traits) — choose it if you want that abstraction, but note its current velocity before standardizing on it (see [references/application-model-oam.md](references/application-model-oam.md)).
 
-**Cluster topology — hub-and-spoke (default):** a **hub** cluster runs the platform control plane (ArgoCD, Backstage, GitLab, Keycloak, Kargo); **spoke** clusters (dev, prod) run workloads. EKS **Auto Mode** is the default cluster type so the platform team isn't managing nodes. Infrastructure metadata flows to clusters via the **GitOps Bridge** pattern. Details: [references/idp-architecture.md](references/idp-architecture.md).
+**Cluster topology — hub-and-spoke (default):** a **hub** cluster runs the platform control plane (ArgoCD, Backstage, GitLab, Keycloak, Kardinal); **spoke** clusters (dev, prod) run workloads. EKS **Auto Mode** is the default cluster type so the platform team isn't managing nodes. Infrastructure metadata flows to clusters via the **GitOps Bridge** pattern. Details: [references/idp-architecture.md](references/idp-architecture.md).
 
 ## The Golden Paths
 
@@ -72,7 +72,7 @@ A golden path is a paved, opinionated route from intent to running software, wit
 1. **Provision an environment** — Backstage template → kro composes VPC + EKS Auto Mode cluster + add-ons + ArgoCD registration. Minutes, not days. → [references/infrastructure-abstraction.md](references/infrastructure-abstraction.md)
 2. **Provision an AWS resource** — Backstage template → ACK manifest committed to Git → ArgoCD syncs → ACK provisions the AWS resource. → [references/infrastructure-abstraction.md](references/infrastructure-abstraction.md)
 3. **Onboard an application** — Backstage template → kro `CICDPipeline` → Argo Workflows CI + ArgoCD CD. Developer contract: provide a `Dockerfile` + the platform's application manifest (a kro-rendered resource, or an OAM `Application` if you run the KubeVela abstraction); the platform does the rest. → [references/developer-portal-backstage.md](references/developer-portal-backstage.md), [references/gitops-delivery.md](references/gitops-delivery.md)
-4. **Ship safely to production** — Argo Rollouts canary with gates in dev; Kargo promotes the validated artifact to prod (auto in dev, manual approval for prod). → [references/progressive-delivery.md](references/progressive-delivery.md)
+4. **Ship safely to production** — Argo Rollouts canary with gates in dev; Kardinal promotes the validated artifact to prod (auto in dev, an approval for prod). → [references/progressive-delivery.md](references/progressive-delivery.md)
 
 **The developer contract** (what app teams provide vs. what the platform handles) is the design heart of every golden path — see [references/golden-paths.md](references/golden-paths.md).
 
@@ -103,7 +103,7 @@ The platform's `appmod-service` component defaults to an **Argo Rollouts canary*
 - **Performance gate** (at 80%) — load/latency test (e.g. Artillery).
 - **Metrics gate** — developer-defined Prometheus queries (e.g. avg response time > 3s → fail).
 
-**Kargo** orchestrates multi-stage promotion: a Warehouse watches ECR for new images; the **dev** stage auto-promotes; the **prod** stage requires manual approval and promotes the *exact same artifact* validated in dev. All promotions are Git commits (auditable, reversible). Strategies (canary/blue-green/A-B), gate config, and the Kargo Warehouse/Stage/Freight model: [references/progressive-delivery.md](references/progressive-delivery.md).
+**Kardinal** orchestrates multi-stage promotion: CI hands each image to Kardinal as a Bundle; **dev** is promoted automatically; **prod** waits for an approval (Kardinal UI with Keycloak SSO, or `kardinal approve`) and gets the *exact same artifact* validated in dev. All promotions are Git commits (auditable, reversible). Strategies (canary/blue-green/A-B), gate config, and the Kardinal Pipeline/Bundle/PolicyGate model: [references/progressive-delivery.md](references/progressive-delivery.md).
 
 ## Measuring Platform Success
 
@@ -142,7 +142,7 @@ This skill uses **progressive disclosure** — the essentials are above; load a 
 | [idp-architecture.md](references/idp-architecture.md) | IDP concept, reference architecture, hub-and-spoke, GitOps Bridge, value/challenges |
 | [developer-portal-backstage.md](references/developer-portal-backstage.md) | Backstage portal, software templates/scaffolder, catalog, self-service flow |
 | [gitops-delivery.md](references/gitops-delivery.md) | ArgoCD + Argo Workflows, app-of-apps, cluster registration, CI/CD wiring |
-| [progressive-delivery.md](references/progressive-delivery.md) | Argo Rollouts strategies, quality gates, Kargo promotion |
+| [progressive-delivery.md](references/progressive-delivery.md) | Argo Rollouts strategies, quality gates, Kardinal promotion |
 | [infrastructure-abstraction.md](references/infrastructure-abstraction.md) | ACK and kro, self-service environment/resource provisioning |
 | [application-model-oam.md](references/application-model-oam.md) | The developer-facing app model — Backstage+kro (default) vs OAM/KubeVela (alternative), components, traits, CUE |
 | [golden-paths.md](references/golden-paths.md) | Golden-path design, guardrails, the developer contract, onboarding |
@@ -155,6 +155,6 @@ This skill uses **progressive disclosure** — the essentials are above; load a 
 
 - [Platform Engineering on EKS workshop (PEEKS)](https://github.com/aws-samples/platform-engineering-on-eks) and its companion [appmod-blueprints](https://github.com/aws-samples/appmod-blueprints)
 - [Internal Developer Platform](https://internaldeveloperplatform.org/) · [CNCF Platforms White Paper](https://tag-app-delivery.cncf.io/whitepapers/platforms/)
-- [Backstage](https://backstage.io/) · [Argo Project](https://argoproj.github.io/) (CD, Workflows, Rollouts) · [Kargo](https://kargo.io/)
+- [Backstage](https://backstage.io/) · [Argo Project](https://argoproj.github.io/) (CD, Workflows, Rollouts) · [Kardinal](https://pnz1990.github.io/kardinal-promoter/)
 - [AWS Controllers for Kubernetes (ACK)](https://aws-controllers-k8s.github.io/community/) · [kro](https://kro.run/) · [KubeVela / OAM](https://kubevela.io/) · [Kubeflow Spark Operator](https://github.com/kubeflow/spark-operator)
 - [Amazon EKS Auto Mode](https://docs.aws.amazon.com/eks/latest/userguide/automode.html) · [EKS Pod Identity](https://docs.aws.amazon.com/eks/latest/userguide/pod-identities.html) · [Kiro](https://kiro.dev/) · [Amazon Q Developer end-of-support notice](https://aws.amazon.com/blogs/devops/amazon-q-developer-end-of-support-announcement/) · [Apache DevLake (DORA)](https://devlake.apache.org/)

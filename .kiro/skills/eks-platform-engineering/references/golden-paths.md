@@ -12,7 +12,7 @@ Every golden path is a contract: a small, stable set of things the developer pro
 | The app manifest (intent) — a kro custom resource on the default stack, or an OAM `Application` on KubeVela | CI/CD pipeline, GitOps wiring |
 | Form parameters (name, region, size, …) | Infra provisioning (ACK/kro), networking (ingress/DNS) |
 | `git push` | Security (IAM/Pod Identity), progressive delivery, rollback |
-| Gate thresholds / metrics (optional) | Promotion (Kargo), observability, DORA metrics |
+| Gate thresholds / metrics (optional) | Promotion (Kardinal), observability, DORA metrics |
 
 Keep the left column tiny and stable. The narrower the developer contract, the lower the cognitive load and the higher adoption.
 
@@ -21,7 +21,7 @@ Keep the left column tiny and stable. The narrower the developer contract, the l
 1. **Provision an environment** — template → kro composes VPC + EKS Auto Mode + add-ons + ArgoCD registration.
 2. **Provision an AWS resource** — template → ACK manifest → Git → ArgoCD → resource exists.
 3. **Onboard an application** — template → kro `CICDPipeline` → Argo Workflows CI + ArgoCD CD; developer provides Dockerfile + OAM manifest.
-4. **Ship safely to prod** — Argo Rollouts canary + gates in dev; Kargo promotes the validated artifact to prod.
+4. **Ship safely to prod** — Argo Rollouts canary + gates in dev; Kardinal promotes the validated artifact to prod.
 
 All four share the same Backstage → Git → ArgoCD → controllers loop (see `developer-portal-backstage.md`).
 
@@ -40,7 +40,7 @@ All four share the same Backstage → Git → ArgoCD → controllers loop (see `
 2. kro `CICDPipeline` reconciles; ArgoCD dev/prod apps appear; ECR repo created.
 3. Team adds a `Dockerfile` + an OAM `Application` to their repo and pushes.
 4. CI builds, CD deploys to dev with canary + gates; DORA tracking is live automatically.
-5. When dev is validated, Kargo promotes to prod (manual approval).
+5. When dev is validated, Kardinal promotes to prod (after an approval).
 
 ## Anti-patterns
 

@@ -1483,8 +1483,8 @@ spec:
                    - name: stamp-build-time
                      template: stamp-build-time
                      dependencies: [build-and-push]
-                     # Best effort: if stamping fails, only NewestBuild ordering (a Kargo
-                     # Warehouse, a Kardinal OCI Subscription) is affected
+                     # Best effort: if stamping fails, only tools that order images by the
+                     # manifest's created annotation are affected (see the template)
                      continueOn:
                        failed: true
                    # One writer per environment: without Kardinal, CI writes deployment/dev;
@@ -1495,8 +1495,8 @@ spec:
                      dependencies: [stamp-build-time]
                      when: "'${schema.spec.kardinal.enabled}' != 'true'"
                    # Not for the one-shot `initial` build (initialbuildworkflow): that image only
-                   # seeds the repo, like the ^initial$ tag Kargo's Warehouse ignored, and has no
-                   # commit to record (Kardinal refuses commitSHA "initial").
+                   # seeds the repo (the deployment manifests start on it) and has no commit to
+                   # record (Kardinal refuses commitSHA "initial").
                    - name: create-bundle
                      template: create-kardinal-bundle
                      dependencies: [stamp-build-time]
@@ -1622,8 +1622,12 @@ spec:
 
              # Kaniko keeps the base image's manifest annotations, so an image built FROM an
              # official image (e.g. tomcat) carries the base's org.opencontainers.image.created.
-             # Kargo's NewestBuild reads that annotation before the config's created time, so
-             # every build of an app looks equally old. Overwrite it with this build's time.
+             # A tool that orders images by that annotation (Kargo's NewestBuild did) sees every
+             # build of an app as equally old. Overwrite it with this build's time.
+             # Kardinal's NewestBuild (an OCI Subscription) reads the image config's created
+             # time instead, which kaniko already sets to the build time (checked on peeks/java:
+             # config 04:03:44Z, this stamp 04:04:02Z), so Kardinal does not need this step;
+             # it stays until the Subscription exploration is done.
              - name: stamp-build-time
                metadata:
                  annotations:
@@ -1688,8 +1692,8 @@ spec:
                      # Update various deployment file formats
                      echo "Debug: Application name is: ${schema.spec.application.name}"
                      # CI updates deployment/dev/ only, for every application (as java already did).
-                     # prod/ changes only through an explicit promotion (Kargo or the module's
-                     # promotion step), and templates/ keeps its <image> placeholders.
+                     # prod/ changes only through an explicit promotion (Kardinal or the
+                     # module's promotion step), and templates/ keeps its <image> placeholders.
                      # KubeVela only re-renders the Rollout when app.oam.dev/publishVersion
                      # changes, so bump it to the image tag too (no-op for manifests without it).
                      if [ -d dev ]; then
@@ -2047,8 +2051,8 @@ spec:
                   curl -X POST -H "Authorization: Bearer $DEVLAKE_TOKEN" -H "Content-Type: application/json" -d "$PAYLOAD" $webhook_url
 
             # Image tag the deployment waits for. A CI push builds an image tagged with its commit
-            # SHA. A prod push is a manifest commit (a Kargo or manual promotion), so its tag is
-            # the one the pushed deployment/prod/ manifests set.
+            # SHA. A prod push is a manifest commit (a Kardinal or manual promotion), so its tag
+            # is the one the pushed deployment/prod/ manifests set.
             - name: resolve-deployed-tag
               inputs:
                 parameters:
@@ -3060,7 +3064,7 @@ spec:
                   end
                   
                   return false
-             # Pushes to main that add or change prod manifests: a Kargo promotion or a manual
+             # Pushes to main that add or change prod manifests: a Kardinal promotion or a manual
              # promotion commit. Unlike gitlab-webhook, any author counts: these deploy prod.
              - name: prod-deploy-webhook
                eventSourceName: ${eventsource.metadata.name}

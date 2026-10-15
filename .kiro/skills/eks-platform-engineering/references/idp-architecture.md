@@ -51,14 +51,14 @@ Analogy: a train-station platform. The platform adds value only when people acti
    (control plane)  (EKS Auto Mode)                         (EKS Auto Mode)
    ArgoCD/Backstage  Argo Rollouts (canary+gates)           Argo Rollouts
    GitLab/Keycloak   ACK · kro · KubeVela                   ACK · kro · KubeVela
-   Kargo · DevLake   External Secrets                       External Secrets
-        │  Kargo promotes validated artifact: dev ─────────────▶ prod
+   Kardinal·DevLake  External Secrets                       External Secrets
+        │  Kardinal promotes validated artifact: dev ──────────▶ prod
         └─────────────────────────────────────────────────────────┘
 ```
 
 ## Hub-and-spoke topology
 
-- **Hub cluster** — runs the platform control plane: ArgoCD, Backstage, GitLab, Keycloak, Kargo, DevLake, Grafana. It is the management plane, not a workload plane.
+- **Hub cluster** — runs the platform control plane: ArgoCD, Backstage, GitLab, Keycloak, Kardinal, DevLake, Grafana. It is the management plane, not a workload plane.
 - **Spoke clusters** — dev and prod, run application/ML/data workloads. Each spoke registers with the hub's ArgoCD and receives platform add-ons automatically.
 - **Why hub-and-spoke:** centralizes control-plane operations, isolates workloads, and lets new spokes self-register and inherit the full add-on set via GitOps.
 - **EKS Auto Mode** is the default cluster type for both hub and spokes so the platform team does not manage nodes, scaling, or patching.
@@ -84,7 +84,7 @@ Practically:
 | GitOps reconciliation | ArgoCD |
 | CI orchestration | Argo Workflows + Argo Events |
 | Progressive delivery | Argo Rollouts |
-| Multi-stage promotion | Kargo |
+| Multi-stage promotion | Kardinal |
 | AWS resources as CRDs | ACK |
 | Resource composition (custom CRDs) | kro |
 | App abstraction | Backstage templates + kro (default); KubeVela / OAM (alternative) |

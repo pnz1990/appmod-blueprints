@@ -10,7 +10,7 @@
 | 1 | ingress-nginx, image-prepuller |
 | 2 | cert-manager, gitlab |
 | 3 | keycloak, argo-events, argo-rollouts, kyverno, kube-state-metrics, prometheus-node-exporter, opentelemetry-operator, kubevela, aws-for-fluentbit, keda |
-| 4 | kyverno-policies, kyverno-policy-reporter, argo-workflows, kargo, backstage, grafana, grafana-operator, flux, aws-efs-csi-driver |
+| 4 | kyverno-policies, kyverno-policy-reporter, argo-workflows, kardinal, backstage, grafana, grafana-operator, flux, aws-efs-csi-driver |
 | 5 | cw-prometheus, cni-metrics-helper, jupyterhub, kubeflow, mlflow, ray-operator, spark-operator, airflow, litellm, langfuse, qdrant |
 | 6 | crossplane-aws, platform-manifests, vllm, tei |
 | 7 | devlake, openwebui, n8n |

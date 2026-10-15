@@ -13,7 +13,7 @@ Keeping CI and CD separate (rather than one monolithic pipeline) means a failed 
 
 - **App-of-apps / ApplicationSets** — a bootstrap `Application` points at a Git path of child `Application`s; ApplicationSets template one app per cluster/environment from a generator (e.g. the cluster-registration secrets from the GitOps Bridge). This is how 60+ platform add-ons stay in sync across hub + spokes.
 - **Cluster registration** — a new spoke registers with the hub's ArgoCD; ApplicationSets then deploy the full add-on set to it automatically.
-- **One ArgoCD Application per deployment target** — e.g. `app-dev-cd` watches `deployment/dev/`, `app-prod-cd` watches `deployment/prod/`. Promotion = changing what's in the prod path (done by Kargo, see `progressive-delivery.md`).
+- **One ArgoCD Application per deployment target** — e.g. `app-dev-cd` watches `deployment/dev/`, `app-prod-cd` watches `deployment/prod/`. Promotion = changing what's in the prod path (done by Kardinal, see `progressive-delivery.md`).
 - **SSO** — ArgoCD logs in via Keycloak; no separate credentials.
 
 ## The application CI/CD pipeline (golden path 3)

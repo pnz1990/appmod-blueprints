@@ -588,9 +588,10 @@ tasks:
         set_var BACKSTAGE_URL "https://${CF}/backstage"
         set_var KEYCLOAK_ADMIN_URL "https://${CF}/keycloak/admin"
         set_var WORKFLOWS_URL "https://${CF}/argo-workflows"
-        set_var KARGO_URL "https://${CF}/kargo"
         # Kardinal UI (Keycloak SSO). Its paths are absolute, so it is /ui/, not /kardinal.
         set_var KARDINAL_URL "https://${CF}/ui/"
+        # Kardinal replaced Kargo: drop the old variable from IDEs set up before.
+        sed -i '/^export KARGO_URL=/d' "$PLATFORM_FILE" 2>/dev/null || true
         set_var JUPYTERHUB_URL "https://${CF}/jupyterhub"
         set_var INGRESS_DOMAIN "${CF}"
         set_var AWS_REGION "{{.AWS_REGION}}"
@@ -1009,7 +1010,7 @@ tasks:
             mkdir -p "$TMP/gitops/fleet"
             cp -r "$SRC/." "$TMP/gitops/fleet/"
             # Seed workshop-specific overlay content (enabled-addons, overrides, per-addon
-            # values; e.g. Kargo ALB ingress on the hub — kept out of the generic solution,
+            # values; e.g. the system-peeks pins — kept out of the generic solution,
             # see workshop/overlay/README.md). Copied to the fleet-config ROOT
             # (overlay_repo_basepath=""): the bootstrap appsets (hub-fleet-secret /
             # fleet-secrets / addons) read $overlay/<overlay_repo_basepath>overlays/* using

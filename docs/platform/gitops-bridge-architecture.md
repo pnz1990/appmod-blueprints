@@ -202,7 +202,7 @@ Addons use Argo CD sync waves to ensure proper deployment ordering. Lower wave n
 | **1** | ingress-nginx, image-prepuller | Core services | Ingress and image caching |
 | **2** | cert-manager, gitlab | Ingress | TLS certificates and Git repository |
 | **3** | keycloak, kubevela, kyverno, monitoring stack | Ingress, GitLab | Identity management and policy enforcement |
-| **4** | backstage, argo-workflows, kargo, grafana, flux, kyverno-policies, aws-efs-csi-driver | Keycloak | Developer tools and storage |
+| **4** | backstage, argo-workflows, kardinal, grafana, flux, kyverno-policies, aws-efs-csi-driver | Keycloak | Developer tools and storage |
 | **5** | crossplane, ML/AI tools (airflow, jupyterhub, kubeflow, mlflow, ray-operator, spark-operator) | Keycloak | Infrastructure provisioning and data science |
 | **6** | crossplane-aws, platform-manifests | Crossplane | AWS provider configurations |
 | **7** | devlake | Crossplane-AWS | Engineering metrics and analytics |
@@ -214,7 +214,6 @@ The following addons were moved to earlier waves to reduce setup time by ~6-7 mi
 - **Backstage**: Wave 10 → 4 (only depends on Keycloak)
 - **Devlake**: Wave 10 → 7 (only depends on Crossplane-AWS)
 - **Argo Workflows**: Wave 6 → 4 (only depends on Keycloak)
-- **Kargo**: Wave 6 → 4 (only depends on Keycloak)
 
 These changes allow addons to deploy in parallel with other services instead of waiting sequentially.
 

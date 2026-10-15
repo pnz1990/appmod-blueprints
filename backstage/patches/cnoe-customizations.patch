@@ -92,7 +92,7 @@ diff --git a/packages/app/src/components/home/Homepage.tsx b/packages/app/src/co
 index dc23f8f..6b161d2 100644
 --- a/packages/app/src/components/home/Homepage.tsx
 +++ b/packages/app/src/components/home/Homepage.tsx
-@@ -7,22 +7,29 @@ import {
+@@ -7,22 +7,27 @@ import {
    HomePageStarredEntities,
  } from '@backstage/plugin-home';
  
@@ -116,7 +116,6 @@ index dc23f8f..6b161d2 100644
 +import gitlabIcon from '../../../public/img/gitlab.png';
 +import argocdIcon from '../../../public/img/argocd.png';
 +import argoWorkflowsIcon from '../../../public/img/argo-workflows.png';
-+import kargoIcon from '../../../public/img/kargo.png';
 +import keycloakIcon from '../../../public/img/keycloak.png';
 +
 +// Map the icon paths used in app-config homepage.quickLinks to the bundled
@@ -126,7 +125,6 @@ index dc23f8f..6b161d2 100644
 +  '/img/gitlab.png': gitlabIcon,
 +  '/img/argocd.png': argocdIcon,
 +  '/img/argo-workflows.png': argoWorkflowsIcon,
-+  '/img/kargo.png': kargoIcon,
 +  '/img/keycloak.png': keycloakIcon,
  };
  
