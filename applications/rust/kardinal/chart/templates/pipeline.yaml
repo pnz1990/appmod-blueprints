@@ -52,6 +52,11 @@ spec:
       {{- with $e.onHealthFailure }}
       onHealthFailure: {{ . }}
       {{- end }}
+      {{- if and $.Values.rollbackPolicy.enabled (has $env $.Values.rollbackPolicy.environments) }}
+      # rollbackPolicy: arm a RollbackPolicy for each version before it promotes here
+      hooks:
+        {{- include "rust-kardinal.armRollbackHook" (dict "env" $env "root" $) | nindent 8 }}
+      {{- end }}
       {{- if eq ($e.approval | default "auto") "pr-review" }}
       {{- with $e.waitForMergeTimeout }}
       waitForMergeTimeout: {{ . }}

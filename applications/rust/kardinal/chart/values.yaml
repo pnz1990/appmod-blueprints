@@ -180,3 +180,27 @@ ciTokenReview:
   clusterRole: ""
   serviceAccount: ""   # default <app>-cicd-sa
   namespace: ""        # default team-<app>
+
+# Roll a version that fails its health check back within about 30 seconds instead of at
+# healthTimeout (docs: rollback.md, RollbackPolicy). An aborted canary makes the
+# environment's Argo CD Application Degraded (the AppmodService health check of the kardinal
+# addon), which Kardinal counts as a failed health check every 10 seconds; onHealthFailure
+# alone acts only at healthTimeout, because Kardinal v0.11.0 applies it to a failed check only
+# inside a running bake window, and an aborted canary was never healthy (kardinal-promoter
+# issue, see docs/platform/progressive-delivery-kardinal.md). A RollbackPolicy rolls back
+# after failureThreshold consecutive failed checks, through the same planner as
+# onHealthFailure: rollback; it names one version (Bundle), so a pre-deploy hook in each
+# environment listed here creates one for each version before it promotes there, owned by the
+# version. Rollback versions get none (they are never rolled back again). The hook fails open:
+# if it cannot create the policy it says so in its log and the version promotes as before,
+# with onHealthFailure at healthTimeout.
+rollbackPolicy:
+  enabled: true
+  environments:
+    - dev
+  failureThreshold: 3
+  # The hook's ServiceAccount (get HookRuns and Bundles, create RollbackPolicies in this
+  # namespace). Kardinal runs hooks only as the ServiceAccounts its controller lists: the
+  # kardinal addon's kardinal-promoter.hooks.serviceAccounts must include it.
+  serviceAccount: kardinal-rollback-arm
+  image: alpine/k8s:1.35.9

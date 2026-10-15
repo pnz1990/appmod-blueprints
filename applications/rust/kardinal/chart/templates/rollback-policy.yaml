@@ -1,0 +1,39 @@
+# The ServiceAccount of the arm-rollback pre-deploy hook (rollbackPolicy, pipeline.yaml): it
+# reads the HookRun it runs for (the version it promotes) and that Bundle, and creates the
+# version's RollbackPolicy. Nothing else: it cannot change Pipelines, Bundles or gates.
+{{- with .Values.rollbackPolicy }}
+{{- if .enabled }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .serviceAccount }}
+  namespace: {{ $.Release.Namespace }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ .serviceAccount }}
+  namespace: {{ $.Release.Namespace }}
+rules:
+  - apiGroups: ["kardinal.io"]
+    resources: ["hookruns", "bundles"]
+    verbs: ["get"]
+  - apiGroups: ["kardinal.io"]
+    resources: ["rollbackpolicies"]
+    verbs: ["get", "create"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ .serviceAccount }}
+  namespace: {{ $.Release.Namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ .serviceAccount }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ .serviceAccount }}
+    namespace: {{ $.Release.Namespace }}
+{{- end }}
+{{- end }}

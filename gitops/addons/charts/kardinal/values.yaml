@@ -143,6 +143,15 @@ kardinal-promoter:
     # Applications (health.type argocd). Flux does not run on the hub.
     readerNamespaces:
       - argocd
+  hooks:
+    # The ServiceAccounts (in a Pipeline's namespace) that a Pipeline's pre- and post-deploy
+    # hooks may run as. kardinal-rollback-arm: the arm-rollback hook of the app charts
+    # (applications/rust/kardinal rollbackPolicy), which creates each version's
+    # RollbackPolicy; the app chart creates it with a Role that allows only that. Anyone who
+    # may edit a Pipeline can run a Pod as these, so the list stays short.
+    serviceAccounts:
+      - default
+      - kardinal-rollback-arm
   # Same placement as the other platform controllers (see addons/charts/kro-upstream).
   tolerations:
     - key: CriticalAddonsOnly
