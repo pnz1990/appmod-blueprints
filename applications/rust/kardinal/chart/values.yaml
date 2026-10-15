@@ -165,11 +165,13 @@ subscription:
     roleArn: ""
 
 # Per-team CI identity for the Bundle API instead of the static token (docs:
-# ci-integration.md, Kubernetes tokens): binds the CI ServiceAccount to Kardinal's promoter
-# ClusterRole in this namespace. Needs the kardinal addon's bundleAPI.tokenReview and the
-# CICDPipeline's kardinal.auth: "tokenreview".
+# ci-integration.md, Kubernetes tokens): a Role that may get this namespace's Pipelines and
+# create Bundles, bound to the CI ServiceAccount. Needs the kardinal addon's
+# bundleAPI.tokenReview and the CICDPipeline's kardinal.auth: "tokenreview". clusterRole:
+# bind that ClusterRole instead (Kardinal's kardinal-promoter-promoter also grants pause,
+# hold and reject).
 ciTokenReview:
   enabled: false
-  clusterRole: kardinal-promoter-promoter
+  clusterRole: ""
   serviceAccount: ""   # default <app>-cicd-sa
   namespace: ""        # default team-<app>

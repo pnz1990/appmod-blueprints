@@ -54,6 +54,14 @@ spec:
        # (kardinal addon), and the Secret and key it reads in kardinal-system.
        tokenStore: string | default="kardinal-bundle-api"
        tokenSecret: string | default="kardinal-bundle-api-token"
+       # How CI authenticates to the Bundle API. "token": the controller-wide static token
+       # (tokenStore/tokenSecret above), a single-tenant admin credential. "tokenreview": the
+       # CI ServiceAccount's own projected token (audience kardinal-promoter), checked by
+       # Kardinal with a TokenReview and a SubjectAccessReview; needs the kardinal addon's
+       # bundleAPI.tokenReview and a binding that lets the ServiceAccount get the Pipeline
+       # and create Bundles in its namespace (e.g. applications/rust/kardinal ciTokenReview).
+       # The Bundle then records the ServiceAccount as its verified creator.
+       auth: string | default="token"
     status:
       # ECR Repository information
       ecrMainRepositoryURI: ${ecrmainrepo.status.?repositoryURI}
@@ -829,11 +837,13 @@ spec:
                    kind: Password
                    name: ${webhooktokengenerator.metadata.name}
 
-    # The Kardinal Bundle API token (kardinal.enabled), copied from kardinal-system through
-    # the kardinal addon's read-only ClusterSecretStore. The create-kardinal-bundle step sends it.
+    # The Kardinal Bundle API token (kardinal.enabled, kardinal.auth "token"), copied from
+    # kardinal-system through the kardinal addon's read-only ClusterSecretStore. The
+    # create-kardinal-bundle step sends it.
     - id: kardinalbundletoken
       includeWhen:
        - ${schema.spec.kardinal.enabled == "true"}
+       - ${schema.spec.kardinal.auth != "tokenreview"}
       readyWhen:
        - ${kardinalbundletoken.status.conditions.exists(x, x.type == 'Ready' && x.status == "True")}
       template:
@@ -1781,11 +1791,11 @@ spec:
                      mountPath: /etc/kardinal
                      readOnly: true
                volumes:
-                 - name: kardinal-token
-                   secret:
-                     secretName: ${schema.spec.name}-kardinal-bundle-token
-                     # Only exists with kardinal.enabled; the step runs only then
-                     optional: true
+                 # The bearer token at /etc/kardinal/token: the static Bundle API token (Secret,
+                 # only exists with kardinal.enabled; the step runs only then), or with
+                 # kardinal.auth "tokenreview" the workflow ServiceAccount's own projected token
+                 # for Kardinal's audience (useless against the API server).
+                 - '${schema.spec.kardinal.auth == "tokenreview" ? dyn({"name": "kardinal-token", "projected": {"sources": [{"serviceAccountToken": {"audience": "kardinal-promoter", "expirationSeconds": 600, "path": "token"}}]}}) : dyn({"name": "kardinal-token", "secret": {"secretName": schema.spec.name + "-kardinal-bundle-token", "optional": true}})}'
 
              - name: notify-status
                container:
