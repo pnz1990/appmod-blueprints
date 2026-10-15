@@ -1,0 +1,51 @@
+# GitOps for the rust app's Kardinal configuration: syncs ./chart from this (GitLab rust) repo
+# into namespace rust-app on the hub. Applied once by deploy-kardinal.sh (envsubst fills in
+# ${GITLAB_URL}, ${GIT_USERNAME} and ${RESOURCE_PREFIX}); after that, change the Pipeline or
+# its gates in git. Project spoke-workloads: namespaced kinds (and the Namespace) only.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: rust-kardinal
+  namespace: argocd
+  labels:
+    app.kubernetes.io/name: rust
+    app.kubernetes.io/component: promotion
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: spoke-workloads
+  destination:
+    name: ${RESOURCE_PREFIX}-hub
+    namespace: rust-app
+  source:
+    repoURL: ${GITLAB_URL}/${GIT_USERNAME}/rust.git
+    targetRevision: main
+    path: kardinal/chart
+    helm:
+      releaseName: rust-kardinal
+      valuesObject:
+        app: rust
+        gitlab:
+          url: ${GITLAB_URL}
+          username: ${GIT_USERNAME}
+        gitToken:
+          key: ${RESOURCE_PREFIX}-hub/secrets
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+  ignoreDifferences:
+    - group: external-secrets.io
+      kind: ExternalSecret
+      jsonPointers:
+        - /status
+      jqPathExpressions:
+        - '.spec.data[]?.remoteRef.nullBytePolicy'

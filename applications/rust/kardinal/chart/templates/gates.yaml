@@ -1,0 +1,27 @@
+# The enabled entries of .Values.gates, as PolicyGates of this namespace (scope team). Each is
+# injected into every Pipeline of the namespace for the environment named in appliesTo.
+{{- range $name, $g := .Values.gates }}
+{{- if $g.enabled }}
+---
+apiVersion: kardinal.io/v1alpha1
+kind: PolicyGate
+metadata:
+  name: {{ $name }}
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    kardinal.io/scope: team
+    kardinal.io/applies-to: {{ required (printf "gates.%s.appliesTo is required" $name) $g.appliesTo }}
+spec:
+  expression: {{ tpl (required (printf "gates.%s.expression is required" $name) $g.expression) $ | quote }}
+  {{- with $g.message }}
+  message: {{ tpl . $ | quote }}
+  {{- end }}
+  {{- with $g.recheckInterval }}
+  recheckInterval: {{ . }}
+  {{- end }}
+  {{- with $g.approval }}
+  approval:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+{{- end }}
+{{- end }}

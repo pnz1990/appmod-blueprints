@@ -1,0 +1,10 @@
+apiVersion: v2
+name: rust-kardinal
+description: >-
+  Kardinal promotion of the rust app: Pipeline rust (dev promotes automatically, prod after
+  its gates), the rust policy gates and the GitLab git Secret. Synced into namespace rust-app
+  on the hub by the Argo CD Application rust-kardinal (../argocd-application.yaml, created by
+  ../deploy-kardinal.sh). The same pattern as applications/java/kardinal; rust never had a
+  Kargo Project.
+type: application
+version: 0.1.0

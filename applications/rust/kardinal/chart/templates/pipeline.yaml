@@ -1,0 +1,40 @@
+# One Pipeline per application. A Bundle (a version: the image CI built) promotes through
+# dev, then prod. Each environment's PromotionStep clones the GitLab repo, sets the image in
+# deployment/<env>/application.yaml, commits and pushes to main, asks Argo CD to sync
+# (the argocd.argoproj.io/refresh annotation) and waits until the environment's Application
+# is Healthy and Synced at that commit.
+#
+# The image goes to ONE path: spec.image of the kro AppmodService (deployment/templates/kro),
+# the full image reference. Kardinal fails a step whose path does not exist, so a KubeVela
+# application.yaml needs spec.components[0].properties.image here instead.
+apiVersion: kardinal.io/v1alpha1
+kind: Pipeline
+metadata:
+  name: {{ .Values.app }}
+  namespace: {{ .Release.Namespace }}
+spec:
+  git:
+    url: {{ include "rust-kardinal.gitURL" . }}
+    branch: main
+    secretRef:
+      name: gitlab-git
+  environments:
+    {{- range $env := list "dev" "prod" }}
+    {{- $e := index $.Values.environments $env }}
+    - name: {{ $env }}
+      path: deployment/{{ $env }}
+      approval: auto
+      update:
+        strategy: yaml
+        yaml:
+          updates:
+            - file: application.yaml
+              path: spec.image
+              value: image
+      health:
+        type: argocd
+        argocd:
+          name: {{ $e.argocdApp | default (printf "%s-%s-cd" $.Values.app $env) }}
+          namespace: argocd
+        timeout: {{ $.Values.healthTimeout }}
+    {{- end }}
