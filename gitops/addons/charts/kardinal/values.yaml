@@ -105,6 +105,17 @@ kardinal-promoter:
     tokenSecretRef:
       name: kardinal-bundle-api-token
       key: token
+    # Also accept Kubernetes tokens (TokenReview + SubjectAccessReview): a CI ServiceAccount
+    # bound to the promoter role in a Pipeline namespace may create its Bundles with its own
+    # projected token (CICDPipeline kardinal.auth "tokenreview"), and the Bundle records it
+    # as the verified creator. The static token keeps working for the others.
+    tokenReview: true
+  # The SCM webhook secret (templates/secrets.yaml generates it): POST :8083/webhook/scm with
+  # X-Gitlab-Token. The port is in-cluster only; GitLab needs a route to it (see the secret).
+  webhook:
+    secretRef:
+      name: kardinal-scm-webhook
+      key: secret
   ui:
     auth:
       # Users sign in to the UI with a Kubernetes token for audience kardinal-promoter
