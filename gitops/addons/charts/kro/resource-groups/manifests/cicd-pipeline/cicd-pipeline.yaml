@@ -1484,10 +1484,13 @@ spec:
                      template: update-git-repo
                      dependencies: [stamp-build-time]
                      when: "'${schema.spec.kardinal.enabled}' != 'true'"
+                   # Not for the one-shot `initial` build (initialbuildworkflow): that image only
+                   # seeds the repo, like the ^initial$ tag Kargo's Warehouse ignored, and has no
+                   # commit to record (Kardinal refuses commitSHA "initial").
                    - name: create-bundle
                      template: create-kardinal-bundle
                      dependencies: [stamp-build-time]
-                     when: "'${schema.spec.kardinal.enabled}' == 'true'"
+                     when: "'${schema.spec.kardinal.enabled}' == 'true' && '{{workflow.parameters.image-tag}}' != 'initial'"
                    - name: notify-completion
                      template: notify-status
                      dependencies: [update-deployment, create-bundle]
