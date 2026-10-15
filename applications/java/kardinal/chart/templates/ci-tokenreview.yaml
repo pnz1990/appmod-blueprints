@@ -1,0 +1,41 @@
+# Per-team CI identity for the Bundle API (ciTokenReview.enabled): the CI ServiceAccount may
+# get this namespace's Pipelines and create their Bundles, the two rights Kardinal's
+# SubjectAccessReview checks, so CI authenticates with its own projected token (audience
+# kardinal-promoter) instead of the controller-wide static token. Needs the kardinal addon's
+# bundleAPI.tokenReview and the CICDPipeline's kardinal.auth "tokenreview". The Bundle then
+# records the CI ServiceAccount as its verified creator (kardinal.io/created-by), which the
+# bundle.createdBy CEL attribute and an approval gate's excludeAuthor read. A narrow Role,
+# not Kardinal's promoter ClusterRole, which also grants pause, hold and reject.
+{{- with .Values.ciTokenReview }}
+{{- if .enabled }}
+{{- $name := printf "%s-ci-bundle-creator" $.Values.app }}
+{{- if not .clusterRole }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ $name }}
+  namespace: {{ $.Release.Namespace }}
+rules:
+  - apiGroups: ["kardinal.io"]
+    resources: ["pipelines"]
+    verbs: ["get"]
+  - apiGroups: ["kardinal.io"]
+    resources: ["bundles"]
+    verbs: ["create"]
+---
+{{- end }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ $name }}
+  namespace: {{ $.Release.Namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: {{ if .clusterRole }}ClusterRole{{ else }}Role{{ end }}
+  name: {{ .clusterRole | default $name }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ .serviceAccount | default (printf "%s-cicd-sa" $.Values.app) }}
+    namespace: {{ .namespace | default (printf "team-%s" $.Values.app) }}
+{{- end }}
+{{- end }}

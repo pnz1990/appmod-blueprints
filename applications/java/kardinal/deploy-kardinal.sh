@@ -3,7 +3,8 @@
 #
 # Applies ONE Argo CD Application, java-kardinal (argocd-application.yaml), which syncs
 # ./chart from the GitLab java repo into namespace java-app on the hub: Pipeline java
-# (dev automatic, prod after one approval), the prod approval gate and the git Secret.
+# (dev automatic, prod after one approval), the prod approval gate, the git Secret and
+# the Role that lets java's CI ServiceAccount create Bundles with its own token.
 # From then on the configuration is GitOps: change it in git. Kardinal itself is a
 # platform addon (enable_kardinal); it needs no IAM role or Pod Identity here, since it
 # only talks to GitLab and to the hub's Argo CD Applications.
@@ -62,3 +63,5 @@ if [ "$READY" != "True" ]; then
 fi
 echo "Done. Kardinal now promotes java: each version (Bundle) goes to dev, then waits for an approval for prod."
 echo "Watch it with: kardinal get pipelines -n java-app; approve prod with: kardinal approve java prod -n java-app"
+echo "CI: java-cicd's manifests/kro-cicd-pipeline.yaml needs kardinal: {enabled: \"true\", auth: \"tokenreview\"}"
+echo "(CI then creates each Bundle with its own ServiceAccount token; the Backstage template sets both)."
