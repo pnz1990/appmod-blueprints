@@ -1,0 +1,50 @@
+{%- if values.promoter == "kardinal" %}
+# Kardinal promotes ${{values.appname}} from dev to prod: syncs ../kardinal (the Pipeline, the
+# prod approval gate and the Pipeline's git token) from this repo into ${{values.appname}}-app on
+# the hub, where Kardinal runs. Change the promotion there, in git.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: ${{values.appname}}-kardinal
+  namespace: argocd
+  labels:
+    entity-id: ${{values.appname}}
+    app.kubernetes.io/name: ${{values.appname}}
+    app.kubernetes.io/component: promotion
+    app.kubernetes.io/managed-by: backstage
+    backstage.io/template-name: cicd-pipeline
+  annotations:
+    backstage.io/created-by: backstage-template
+    cicd.kro.run/application-name: ${{values.appname}}
+  finalizers:
+  - resources-finalizer.argocd.argoproj.io
+spec:
+  # Namespaced kinds and the Namespace only, like the dev/prod Applications.
+  project: spoke-workloads
+  destination:
+    name: ${{values.cluster_name}}
+    namespace: ${{values.appname}}-app
+  source:
+    repoURL: https://${{values.gitlab_hostname}}/${{values.git_username}}/${{values.appname}}-cicd.git
+    targetRevision: main
+    path: kardinal
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+    - CreateNamespace=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+  ignoreDifferences:
+  - group: external-secrets.io
+    kind: ExternalSecret
+    jsonPointers:
+    - /status
+    jqPathExpressions:
+    - '.spec.data[]?.remoteRef.nullBytePolicy'
+{%- endif %}

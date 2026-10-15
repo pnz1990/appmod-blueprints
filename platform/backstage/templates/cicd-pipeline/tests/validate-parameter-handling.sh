@@ -22,8 +22,8 @@ echo "Checking parameter structure..."
 
 # Check for proper parameter sections
 PARAMETER_SECTIONS=$(yq '.spec.parameters | length' "$TEMPLATE_FILE")
-if [ "$PARAMETER_SECTIONS" -ne 3 ]; then
-    echo "ERROR: Expected 3 parameter sections (Application, AWS, Paths), found $PARAMETER_SECTIONS"
+if [ "$PARAMETER_SECTIONS" -ne 4 ]; then
+    echo "ERROR: Expected 4 parameter sections (Application, AWS, Paths, Promotion), found $PARAMETER_SECTIONS"
     exit 1
 fi
 
@@ -58,7 +58,7 @@ if [ -z "$DOCKERFILE_PATTERN" ]; then
 fi
 
 # Verify the pattern is correct
-EXPECTED_DOCKERFILE_PATTERN='^\.(/[a-zA-Z0-9_-]+)*/?$'
+EXPECTED_DOCKERFILE_PATTERN='^\.(/[a-zA-Z0-9_-]+)*/?$|^\.$'
 if [ "$DOCKERFILE_PATTERN" != "$EXPECTED_DOCKERFILE_PATTERN" ]; then
     echo "ERROR: dockerfile_path pattern incorrect. Expected: $EXPECTED_DOCKERFILE_PATTERN, Found: $DOCKERFILE_PATTERN"
     exit 1
@@ -74,6 +74,32 @@ if [ -z "$DEPLOYMENT_PATTERN" ]; then
 fi
 
 echo "✓ deployment_path validation pattern found: $DEPLOYMENT_PATTERN"
+
+# Check the promoter parameter (Kardinal opt-in) and that the skeleton uses it
+echo "Checking promoter parameter..."
+PROMOTER_DEFAULT=$(yq '.spec.parameters[3].properties.promoter.default' "$TEMPLATE_FILE")
+PROMOTER_ENUM=$(yq -o=json -I=0 '.spec.parameters[3].properties.promoter.enum' "$TEMPLATE_FILE")
+if [ "$PROMOTER_DEFAULT" != "kardinal" ] || [ "$PROMOTER_ENUM" != '["kardinal","none"]' ]; then
+    echo "ERROR: promoter should default to kardinal with enum [kardinal, none], found default=$PROMOTER_DEFAULT enum=$PROMOTER_ENUM"
+    exit 1
+fi
+if ! yq '.spec.steps[] | select(.id == "fetch-base") | .input.values.promoter' "$TEMPLATE_FILE" | grep -q 'parameters.promoter'; then
+    echo "ERROR: fetch-base does not pass promoter to the skeleton"
+    exit 1
+fi
+for f in skeleton/manifests/kro-cicd-pipeline.yaml skeleton/manifests/argo-app-kardinal.yaml; do
+    if ! grep -q 'values.promoter == "kardinal"' "$f"; then
+        echo "ERROR: $f is not conditional on promoter == kardinal"
+        exit 1
+    fi
+done
+for f in pipeline.yaml prod-approval.yaml git-secret.yaml; do
+    if [ ! -f "skeleton/kardinal/$f" ]; then
+        echo "ERROR: skeleton/kardinal/$f missing"
+        exit 1
+    fi
+done
+echo "✓ promoter defaults to kardinal; the CICDPipeline opt-in and the Kardinal Application depend on it"
 
 # Check default values
 echo "Checking default values..."

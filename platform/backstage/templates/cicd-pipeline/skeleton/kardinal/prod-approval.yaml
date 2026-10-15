@@ -1,0 +1,17 @@
+# prod needs a person: the gate is ready only once someone approved the version for prod
+# (Kardinal UI at https://${{values.ingress_hostname}}/ui/ with Keycloak sign-in, or
+# kardinal approve ${{values.appname}} prod -n ${{values.appname}}-app on the IDE) and nobody
+# declined it. Scope team: injected into every Pipeline of this namespace, for prod.
+apiVersion: kardinal.io/v1alpha1
+kind: PolicyGate
+metadata:
+  name: prod-approval
+  namespace: ${{values.appname}}-app
+  labels:
+    kardinal.io/scope: team
+    kardinal.io/applies-to: prod
+spec:
+  expression: "true"
+  message: "prod needs 1 approval: kardinal approve ${{values.appname}} prod"
+  approval:
+    required: 1

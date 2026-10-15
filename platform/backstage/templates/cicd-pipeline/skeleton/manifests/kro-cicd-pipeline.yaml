@@ -39,3 +39,9 @@ spec:
   hub:
     hostname: ${{values.ingress_hostname}}
     insecure: ${{values.insecure | default(true, true)}}
+{%- if values.promoter == "kardinal" %}
+  # CI creates a Kardinal Bundle after the image push (Pipeline <app> in namespace <app>-app,
+  # see ../kardinal) instead of writing deployment/dev itself: Kardinal deploys dev, then prod.
+  kardinal:
+    enabled: "true"
+{%- endif %}

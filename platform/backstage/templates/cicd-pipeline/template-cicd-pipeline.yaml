@@ -58,6 +58,24 @@ spec:
           default: "./deployment"
           pattern: '^\.(/[a-zA-Z0-9_-]+)+/?$'
           ui:help: 'Path to deployment manifests relative to repository root'
+    - title: Promotion
+      description: How a new build reaches dev and prod
+      properties:
+        promoter:
+          title: Promoter
+          description: >-
+            kardinal: CI creates a Kardinal Bundle for each build; Kardinal deploys it to dev,
+            then to prod once someone approves (Kardinal UI at /ui/, or kardinal approve).
+            none: CI writes the new image to deployment/dev; prod is a manual git change.
+          type: string
+          default: kardinal
+          enum:
+            - kardinal
+            - none
+          enumNames:
+            - Kardinal (dev automatic, prod after approval)
+            - None (CI deploys dev only)
+          ui:help: 'Kardinal needs the kardinal addon on the hub (hub.kroMode upstream)'
   steps:
     - id: fetchSystem
       name: Fetch System
@@ -76,6 +94,7 @@ spec:
           - Cluster Name: ${{ steps['fetchSystem'].output.entity.spec.hub_cluster_name }}
           - Dockerfile Path: ${{ parameters.dockerfile_path }}
           - Deployment Path: ${{ parameters.deployment_path }}
+          - Promoter: ${{ parameters.promoter }}
 
     - action: fetch:template
       name: Fetch Base
@@ -96,6 +115,7 @@ spec:
           aws_resource_prefix: ${{ steps['fetchSystem'].output.entity.spec.resource_prefix }}
           dockerfile_path: ${{parameters.dockerfile_path}}
           deployment_path: ${{parameters.deployment_path}}
+          promoter: ${{ parameters.promoter }}
           created_by: ${{ (user.entity.spec.profile.displayName | default(user.entity.metadata.name) | default(user.ref) | default("backstage-user")) | replace(" ", "-") }}
 
     - id: publish
@@ -241,6 +261,10 @@ spec:
       - title: GitLab Repository (GitOps Source)
         url: https://${{ steps['fetchSystem'].output.entity.spec.gitlab_hostname }}/${{ steps['fetchSystem'].output.entity.spec.gituser }}/${{ parameters.appname }}-cicd
         icon: git
+      - title: Kardinal Pipeline (promotion dev → prod)
+        if: ${{ parameters.promoter === 'kardinal' }}
+        url: https://${{ steps['fetchSystem'].output.entity.spec.ingress_hostname }}/ui/#/p/${{ parameters.appname }}-app/${{ parameters.appname }}
+        icon: web
       - title: ArgoCD Project
         url: https://${{ steps['fetchSystem'].output.entity.spec.argocd_hostname }}/settings/projects/${{ parameters.appname }}-project
         icon: web

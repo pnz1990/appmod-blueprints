@@ -1,0 +1,56 @@
+# One Pipeline per application. A Bundle (a version: the image CI built and announced to
+# Kardinal's Bundle API) promotes through dev, then prod. Each environment's PromotionStep
+# clones https://${{values.gitlab_hostname}}/${{values.git_username}}/${{values.appname}}.git,
+# sets the image in ${{values.deployment_path}}/<env>/application.yaml, commits and pushes to
+# main, asks Argo CD to sync, and waits until ${{values.appname}}-<env>-cd is Healthy and
+# Synced at that commit (the canary and its analysis gates included).
+#
+# Both environments push straight to main (approval: auto); prod waits for the approval gate
+# (prod-approval.yaml) before its PromotionStep is created.
+#
+# The image goes to spec.image of the kro AppmodService (deployment/templates/kro). For a
+# KubeVela application.yaml use spec.components[0].properties.image instead.
+apiVersion: kardinal.io/v1alpha1
+kind: Pipeline
+metadata:
+  name: ${{values.appname}}
+  namespace: ${{values.appname}}-app
+spec:
+  git:
+    url: https://${{values.gitlab_hostname}}/${{values.git_username}}/${{values.appname}}.git
+    branch: main
+    secretRef:
+      name: gitlab-git
+  environments:
+  - name: dev
+    path: ${{values.deployment_path}}/dev
+    approval: auto
+    update:
+      strategy: yaml
+      yaml:
+        updates:
+        - file: application.yaml
+          path: spec.image
+          value: image
+    health:
+      type: argocd
+      argocd:
+        name: ${{values.appname}}-dev-cd
+        namespace: argocd
+      timeout: 20m
+  - name: prod
+    path: ${{values.deployment_path}}/prod
+    approval: auto
+    update:
+      strategy: yaml
+      yaml:
+        updates:
+        - file: application.yaml
+          path: spec.image
+          value: image
+    health:
+      type: argocd
+      argocd:
+        name: ${{values.appname}}-prod-cd
+        namespace: argocd
+      timeout: 20m
