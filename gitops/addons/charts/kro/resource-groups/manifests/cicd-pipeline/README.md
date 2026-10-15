@@ -141,7 +141,20 @@ spec:
   gitlab:
     hostname: "gitlab.example.com"     # GitLab hostname
     username: "my-user"                # GitLab username
+  kardinal:                            # Optional: Kardinal promotes the application
+    enabled: "true"                    # default "false": CI writes deployment/dev itself
+    pipeline: ""                       # Kardinal Pipeline (default: application.name)
+    pipelineNamespace: ""              # its namespace (default: <application.name>-app)
 ```
+
+With `kardinal.enabled: "true"` (the kardinal addon on the hub and the app's Kardinal
+Pipeline, e.g. `applications/java/kardinal`), the CI workflow's `create-bundle` step creates a
+Kardinal Bundle for the image it built (Bundle API, with the commit, its author and the CI
+run as provenance) instead of `update-deployment` writing `deployment/dev`: Kardinal promotes
+dev, then prod. The token comes from the addon's `kardinal-bundle-api` ClusterSecretStore
+(ExternalSecret `<name>-kardinal-bundle-token`). DORA is unchanged: the code push still
+records the dev deployment once the dev Rollout runs the image, and Kardinal's
+`deployment/prod` commit triggers the prod record.
 
 ## Status Information
 

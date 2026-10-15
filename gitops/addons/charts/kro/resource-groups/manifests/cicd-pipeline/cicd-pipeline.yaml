@@ -37,6 +37,23 @@ spec:
        # ALB scheme for the GitLab webhook ingress. Default internet-facing.
        # Set to internal when placing CloudFront or another edge in front.
        scheme: string | default="internet-facing"
+      # Kardinal promotes the application (the kardinal addon on the hub, and the app's
+      # Kardinal Pipeline, e.g. applications/java/kardinal). With enabled "true", CI hands
+      # each build to Kardinal as a Bundle (POST <apiURL>/api/v1/bundles) and no longer
+      # writes deployment/dev itself: Kardinal promotes dev, then prod, so one writer owns
+      # each environment. Off by default: CI keeps writing deployment/dev.
+      kardinal:
+       enabled: string | default="false"
+       # The Kardinal Pipeline and its namespace on the hub. Empty: <application.name>
+       # and <application.name>-app.
+       pipeline: string | default=""
+       pipelineNamespace: string | default=""
+       # Bundle API of the kardinal addon (the controller's :8083 listener).
+       apiURL: string | default="http://kardinal-promoter.kardinal-system.svc:8083"
+       # ClusterSecretStore through which this namespace copies the Bundle API token
+       # (kardinal addon), and the Secret and key it reads in kardinal-system.
+       tokenStore: string | default="kardinal-bundle-api"
+       tokenSecret: string | default="kardinal-bundle-api-token"
     status:
       # ECR Repository information
       ecrMainRepositoryURI: ${ecrmainrepo.status.?repositoryURI}
@@ -812,6 +829,50 @@ spec:
                    kind: Password
                    name: ${webhooktokengenerator.metadata.name}
 
+    # The Kardinal Bundle API token (kardinal.enabled), copied from kardinal-system through
+    # the kardinal addon's read-only ClusterSecretStore. The create-kardinal-bundle step sends it.
+    - id: kardinalbundletoken
+      includeWhen:
+       - ${schema.spec.kardinal.enabled == "true"}
+      readyWhen:
+       - ${kardinalbundletoken.status.conditions.exists(x, x.type == 'Ready' && x.status == "True")}
+      template:
+       apiVersion: external-secrets.io/v1
+       kind: ExternalSecret
+       metadata:
+          name: ${schema.spec.name}-kardinal-bundle-token
+          ownerReferences:
+             - apiVersion: kro.run/v1alpha1
+               kind: ${schema.kind}
+               name: ${schema.metadata.name}
+               uid: ${schema.metadata.uid}
+               blockOwnerDeletion: true
+               controller: false
+          annotations:
+             argocd.argoproj.io/tracking-id: ${schema.metadata.?annotations["argocd.argoproj.io/tracking-id"].orValue("")}
+          labels:
+             app.kubernetes.io/name: ${schema.spec.application.name}
+             app.kubernetes.io/component: cicd-pipeline
+             app.kubernetes.io/managed-by: kro
+       spec:
+          refreshInterval: 1h
+          secretStoreRef:
+              name: ${schema.spec.kardinal.tokenStore}
+              kind: ClusterSecretStore
+          target:
+              name: ${schema.spec.name}-kardinal-bundle-token
+              creationPolicy: Owner
+              # With a template, ESO doesn't copy this object's labels (including kro's applyset
+              # labels) onto the Secret, so kro doesn't prune it
+              template:
+                data:
+                  token: '{{ .token }}'
+          data:
+             - secretKey: token
+               remoteRef:
+                 key: ${schema.spec.kardinal.tokenSecret}
+                 property: token
+
     # Docker registry secret for ECR authentication - properly scoped to namespace
     - id: dockersecret
       readyWhen:
@@ -1412,15 +1473,24 @@ spec:
                    - name: stamp-build-time
                      template: stamp-build-time
                      dependencies: [build-and-push]
-                     # Best effort: if stamping fails, only Kargo's NewestBuild ordering is affected
+                     # Best effort: if stamping fails, only NewestBuild ordering (a Kargo
+                     # Warehouse, a Kardinal OCI Subscription) is affected
                      continueOn:
                        failed: true
+                   # One writer per environment: without Kardinal, CI writes deployment/dev;
+                   # with Kardinal (kardinal.enabled), CI creates a Bundle and Kardinal writes
+                   # deployment/dev, then deployment/prod.
                    - name: update-deployment
                      template: update-git-repo
                      dependencies: [stamp-build-time]
+                     when: "'${schema.spec.kardinal.enabled}' != 'true'"
+                   - name: create-bundle
+                     template: create-kardinal-bundle
+                     dependencies: [stamp-build-time]
+                     when: "'${schema.spec.kardinal.enabled}' == 'true'"
                    - name: notify-completion
                      template: notify-status
-                     dependencies: [update-deployment]
+                     dependencies: [update-deployment, create-bundle]
 
              - name: git-checkout
                metadata:
@@ -1643,6 +1713,76 @@ spec:
                        name: ${schema.spec.name}-config
                    - secretRef:
                        name: gitlab-credentials
+
+             # Hand the build to Kardinal (kardinal.enabled): create a Bundle (the version to
+             # promote) for this image with its provenance, through the Bundle API. Kardinal
+             # then promotes dev, and prod after its gates. Creating a Bundle is not
+             # idempotent, so only a request that cannot have reached the controller (no
+             # connection, or 502/503 from a proxy) is retried.
+             - name: create-kardinal-bundle
+               metadata:
+                 annotations:
+                   karpenter.sh/do-not-disrupt: "true"
+               container:
+                 # Pinned image that ships curl and jq
+                 image: alpine/k8s:1.35.9
+                 command: [/bin/bash, -c]
+                 args:
+                   - |
+                     set -euo pipefail
+                     SHA="{{workflow.parameters.image-tag}}"
+                     # Provenance: the commit's author, from GitLab (best effort)
+                     PROJECT=$(jq -rn --arg p "${schema.spec.gitlab.username}/${schema.spec.application.name}" '$p | @uri')
+                     AUTHOR=$(curl -fsS -H "PRIVATE-TOKEN: $GITLAB_TOKEN" \
+                       "https://${schema.spec.gitlab.hostname}/api/v4/projects/$PROJECT/repository/commits/$SHA" \
+                       | jq -r '.author_name // empty' || true)
+                     [ -n "$AUTHOR" ] || AUTHOR=unknown
+                     BODY=$(jq -n \
+                       --arg pipeline "${schema.spec.kardinal.pipeline != "" ? schema.spec.kardinal.pipeline : schema.spec.application.name}" \
+                       --arg namespace "${schema.spec.kardinal.pipelineNamespace != "" ? schema.spec.kardinal.pipelineNamespace : schema.spec.application.name + "-app"}" \
+                       --arg repository "${ecrmainrepo.status.repositoryURI}" \
+                       --arg tag "$SHA" \
+                       --arg author "$AUTHOR" \
+                       --arg run "https://${schema.spec.hub.hostname}/argo-workflows/workflows/${schema.metadata.namespace}/{{workflow.name}}" \
+                       '{pipeline: $pipeline, namespace: $namespace, type: "image",
+                         images: [{repository: $repository, tag: $tag}],
+                         provenance: {commitSHA: $tag, author: $author, ciRunURL: $run}}')
+                     echo "Creating a Kardinal Bundle: $BODY"
+                     # The token goes in a header file, never on the command line
+                     umask 077
+                     printf 'Authorization: Bearer %s\n' "$(cat /etc/kardinal/token)" > /tmp/auth-header
+                     for attempt in 1 2 3; do
+                       CODE=$(curl -sS -o /tmp/response -w '%{http_code}' -X POST \
+                         -H @/tmp/auth-header -H "Content-Type: application/json" \
+                         --data "$BODY" "${schema.spec.kardinal.apiURL}/api/v1/bundles") || CODE=000
+                       case "$CODE" in
+                         000|502|503) echo "Bundle API not reachable (HTTP $CODE), attempt $attempt"; sleep $((attempt * 5)) ;;
+                         *) break ;;
+                       esac
+                     done
+                     rm -f /tmp/auth-header
+                     cat /tmp/response; echo
+                     if [ "$CODE" != "201" ]; then
+                       echo "Bundle API answered HTTP $CODE: no Bundle was created" >&2
+                       exit 1
+                     fi
+                     echo "Kardinal promotes $(jq -r '.namespace + "/" + .name' /tmp/response): kardinal get bundles -n $(jq -r .namespace /tmp/response)"
+                 env:
+                   - name: GITLAB_TOKEN
+                     valueFrom:
+                       secretKeyRef:
+                         name: gitlab-credentials
+                         key: GITLAB_TOKEN
+                 volumeMounts:
+                   - name: kardinal-token
+                     mountPath: /etc/kardinal
+                     readOnly: true
+               volumes:
+                 - name: kardinal-token
+                   secret:
+                     secretName: ${schema.spec.name}-kardinal-bundle-token
+                     # Only exists with kardinal.enabled; the step runs only then
+                     optional: true
 
              - name: notify-status
                container:
