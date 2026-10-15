@@ -14,6 +14,29 @@ This platform is extended with an agentic layer powered by the [Open Agentic Pla
 
 ![Platform Engineering on EKS Architecture](docs/images/Peeks-Architecture.png)
 
+## Progressive delivery: Kardinal replaces Kargo (branch `feat/kardinal-replaces-kargo`)
+
+On this branch [Kardinal](https://pnz1990.github.io/kardinal-promoter/) (kardinal-promoter v0.11.0)
+promotes applications from dev to prod, and Kargo is removed.
+
+| Cluster | kro | Promotion |
+|---|---|---|
+| **Hub** | upstream kro **v0.10.0-rc.0** (`kro-upstream` addon, with the Graph API Kardinal needs), in place of the EKS managed kro capability | the **Kardinal** controller (`kardinal` addon). UI at `https://<domain>/ui/` with Keycloak SSO; CLI on the IDE |
+| **Spokes** (dev, prod) | the EKS **managed kro** capability, unchanged | Argo Rollouts canaries and gates, as before |
+
+How a change ships:
+1. CI builds the image and hands it to Kardinal as a Bundle: the version, with its commit, author
+   and CI run.
+2. Kardinal commits the image to `deployment/dev`, Argo CD deploys it, and Kardinal waits for
+   Healthy.
+3. prod follows after an approval (java, and apps from the Backstage template) or a GitLab merge
+   request (rust). DevLake records both environments, as before.
+
+`hub.kroMode: upstream`, the workshop default here, selects this setup. `managed` keeps the
+capability on the hub, and there is no promoter then. Details, options, the way back to the
+managed capability and known issues:
+[docs/platform/progressive-delivery-kardinal.md](docs/platform/progressive-delivery-kardinal.md).
+
 ## Clickable Interactive Demo
 
 [![Platform Engineering Demo](docs/images/demo.gif)](https://app.storylane.io/share/219m06juq81g)
