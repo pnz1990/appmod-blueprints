@@ -53,6 +53,7 @@ mid-install. See [docs/platform/cloudfront-exposure.md](../docs/platform/cloudfr
 | `HUB_SUBNET_IDS` | from CDK bootstrap | Private subnet IDs for the ALB |
 | `ADMIN_ROLE_NAME` | from `WS_PARTICIPANT_ROLE_ARN` | IAM role for cluster admin access |
 | `HUB_KRO_MODE` | `upstream` | `hub.kroMode`: `upstream` = self-managed kro (Graph API) and the Kardinal promoter on the hub instead of the managed kro capability; `managed` = the capability, without Kardinal |
+| `IDC_CONFIGURE_SKIP` | `false` | Read by `task install` (`idc:configure`), not by `create-config.sh`. `true` never touches IAM Identity Center, which is one per account: use it for a second stack in an account whose IdC is already federated to another stack's Keycloak |
 
 ---
 
