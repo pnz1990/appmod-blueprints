@@ -42,7 +42,7 @@ On the **hub**:
 | Piece | Where | What it does |
 |---|---|---|
 | `kro-upstream` addon | `gitops/addons/charts/kro-upstream`, registry `platform.yaml` | Self-managed upstream kro **v0.10.0-rc.0** with the `GraphKind` feature (Kardinal builds one `kro.run/v1alpha1` Graph per Bundle). It also runs every hub RGD, in place of the EKS managed kro capability (`kroCapability.enabled: "false"` on the hub's EksCluster). |
-| `kardinal` addon | `gitops/addons/charts/kardinal` (umbrella over `oci://ghcr.io/pnz1990/charts/kardinal-promoter` 0.11.0), registry `gitops.yaml` | The controller, the Kardinal CRDs and admission policies. External Secrets for the controller's GitLab token (`<hub>/secrets.git_token`), a generated Bundle API token, a read-only ClusterSecretStore (`kardinal-bundle-api`) through which the `team-*` CI namespaces copy that token, and a generated SCM webhook secret (`kardinal-scm-webhook`). The Bundle API also accepts Kubernetes tokens (`bundleAPI.tokenReview`). The UI's SSO (`sso`, see below). |
+| `kardinal` addon | `gitops/addons/charts/kardinal` (umbrella over `oci://ghcr.io/pnz1990/charts/kardinal-promoter` 0.11.0), registry `gitops.yaml` | The controller, the Kardinal CRDs and admission policies. External Secrets for the controller's GitLab token (`<hub>/secrets.git_token`), a generated Bundle API token, a read-only ClusterSecretStore (`kardinal-bundle-api`) through which the `team-*` CI namespaces copy that token, and a generated SCM webhook secret (`kardinal-scm-webhook`). The Bundle API also accepts Kubernetes tokens (`bundleAPI.tokenReview`). The UI's SSO (`sso`, see below). The Argo CD health check for AppmodService instances (`argocdHealth`: the EKS Argo CD capability's `argocd-cm`, so an aborted canary is Degraded; [below](#bake-automatic-rollback-and-supersession)). The ServiceAccounts hooks may run as (`hooks.serviceAccounts`: `default`, `kardinal-rollback-arm`). |
 | Per app | namespace `<app>-app` | Pipeline `<app>` (dev then prod, `update.strategy: yaml` on `deployment/<env>/application.yaml` `spec.image`, `health.type: argocd` on `<app>-<env>-cd`), PolicyGate `prod-approval` (1 approval), ExternalSecret `gitlab-git` (the Pipeline's git token, `kardinal.io/referenceable`), and with `kardinal.auth: tokenreview` the Role `<app>-ci-bundle-creator` for CI. Synced by the Argo CD Application `<app>-kardinal`. |
 | CI glue | `cicd-pipeline` RGD, `spec.kardinal` (`enabled`, `auth`, `trigger`) | After the image push, CI's `create-bundle` step POSTs a Bundle (image, commit SHA, GitLab author, Argo Workflows run URL) instead of writing `deployment/dev` itself, so one writer owns each environment. The one-shot `initial` build creates no Bundle. `auth` picks the credential CI sends, `trigger` who creates the Bundles ([below](#how-ci-hands-a-build-to-kardinal-kardinalauth-and-kardinaltrigger)). |
 | Backstage | `platform/backstage/templates/cicd-pipeline`, parameters `promoter` (default `kardinal`) and `kardinalAuth` (default `tokenreview`) | Sets `kardinal.enabled` and `kardinal.auth`, and adds `<app>-kardinal` plus the `kardinal/` objects to the generated `<app>-cicd` repo. No script to run. |
@@ -185,11 +185,12 @@ defaults an instance renders the same WorkflowTemplate as before the field exist
   java, rust and a Backstage-scaffolded app. Gates can also tell CI's Bundles apart, through
   `bundle.createdBy` and an approval gate's `excludeAuthor`.
 - **`token`** for a single team, or while the addon's TokenReview is off. It stays the RGD default
-  so instances created before the option render unchanged; on the live stack, java still uses it.
+  so instances created before the option render unchanged. On the live stack every app uses `tokenreview` (java since 2026-10-15).
 
 **Switching an existing app.** In `<app>-cicd`, set `kardinal.auth: "tokenreview"`, and first add
-the Role and RoleBinding to the app's Kardinal objects (for rust, `ciTokenReview.enabled`, which is
-on by default). kro then mounts the projected token and prunes the copied static token.
+the Role and RoleBinding to the app's Kardinal objects (`ciTokenReview.enabled` in the java and rust
+charts, on by default). kro then mounts the projected token and prunes the copied static token
+(checked live for java: the WorkflowTemplate's token volume is the only change).
 
 > `tokenReview.acceptAPIServerAudience: true` is needed for the UI's SSO, and it applies to the
 > Bundle API too: a token with the API server's audience is accepted there as well, and RBAC still
@@ -322,7 +323,9 @@ starts promoting.
 - **Bake** (`bake.minutes`, `bake.policy`). After the health check passes, the environment must
   stay healthy for that long, without a break, before the version is Verified.
   - `reset-on-alarm` restarts the window on an unhealthy check.
-  - `fail-on-alarm` applies `onHealthFailure` at once.
+  - `fail-on-alarm` applies `onHealthFailure` at the first unhealthy check, but only once a window
+    has started: a version that was never healthy (an aborted canary) is not covered
+    ([#2006](https://github.com/pnz1990/kardinal-promoter/issues/2006)).
   - rust's dev uses 2 minutes with `reset-on-alarm`.
 - **`onHealthFailure`** decides what happens when the environment fails:
   - `none`: the step fails;
@@ -334,14 +337,42 @@ starts promoting.
   Live, with a bad rust build: the canary aborted at 04:30:34, the rollback started at the 4-minute
   health timeout (04:33:42), and dev ran the previous image again at 04:34:07. DevLake recorded the
   DEVELOPMENT failure.
-- **Limitation: an aborted canary shows as Progressing.**
-  - Argo CD tracks the kro AppmodService, not the spoke Rollout under it. When the canary's analysis
-    aborts the Rollout, the AppmodService just stays not Ready, and the Application shows
-    Progressing, not Degraded.
-  - Kardinal reads that as "still waiting" and acts only at `health.timeout`: 10 minutes for rust's
-    dev, 20 for the template's Pipelines. `fail-on-alarm` cannot act sooner either.
-  - An Argo CD health check for the AppmodService that maps an aborted Rollout to Degraded would make
-    the rollback immediate. It is not part of this branch, so keep dev's `healthTimeout` short.
+- **An aborted canary is Degraded, and rust's dev rolls it back within a minute.**
+  - Argo CD tracks the kro AppmodService, not the spoke Rollout under it, and kro keeps the instance
+    not Ready while the Rollout is not Healthy, which reads the same for a running canary and an
+    aborted one. So the AppmodService RGD copies the Rollout's phase and message into
+    `status.rollout.<variant>` (Progressing until Argo Rollouts has observed the current spec), and
+    the `kardinal` addon gives the hub's Argo CD a health check for `kro.run/AppmodService`
+    (`files/appmodservice-health.lua`): Degraded when the Rollout is Degraded, otherwise kro's
+    readiness as before. Every app gets it, java and the Backstage apps included.
+  - Kardinal then sees `unhealthy via argocd: health=Degraded` within seconds, every 10 seconds.
+    But Kardinal v0.11.0 applies `onHealthFailure` to an unhealthy check only inside a running bake
+    window, so on its own it still waits for `health.timeout`
+    ([#2006](https://github.com/pnz1990/kardinal-promoter/issues/2006)).
+  - The rust chart's `rollbackPolicy` (on, dev) closes that gap. A pre-deploy hook `arm-rollback`
+    creates a Kardinal RollbackPolicy for each version before it promotes in dev (named after the
+    Bundle, owned by it, `failureThreshold: 3`). After three failed checks, about 30 seconds,
+    Kardinal creates the rollback Bundle `<bundle>-rollback-policy` (the same planner as
+    `onHealthFailure: rollback`), and the bad version is Superseded. Rollback versions get no policy.
+    The hook fails open: if it cannot create the policy, it logs a warning, and `onHealthFailure`
+    acts at `health.timeout` as before.
+  - Live, a bad rust build (`GET /collection/*` answers 404, the functional gate fails):
+
+    | | before (2026-10-15 04:30, 4m lab timeout) | with the health check and the RollbackPolicy (18:09) |
+    |---|---|---|
+    | the Rollout aborted | 04:30:34 | 18:09:52 |
+    | Argo CD Application | Progressing | Degraded at 18:09:57 |
+    | rollback Bundle | 04:33:42 (the `health.timeout`) | 18:10:23 (3 failed checks), **31 s** after the abort |
+    | dev Synced/Healthy on the previous image | 04:34:07 | 18:10:34 |
+
+    A good build with the functional gate on was Verified with 0 failed checks, as before.
+  - Java's Pipeline has no `onHealthFailure` and no RollbackPolicy hook: its Application now shows
+    an aborted canary as Degraded, and the step fails at its 20-minute `health.timeout`, as before.
+  - Why not `health.type: argoRollouts` on the spoke Rollout: Kardinal would stop asking Argo CD to
+    sync on promotion ([#2007](https://github.com/pnz1990/kardinal-promoter/issues/2007)), and the
+    EKS capability's Argo CD re-reads git only every 6-10 minutes here. It would also need a token
+    for the spoke that Kardinal cannot mint from IAM
+    ([#2008](https://github.com/pnz1990/kardinal-promoter/issues/2008)).
 - **Manual rollback.** `kardinal rollback <app> --env prod -n <app>-app --hold --reason …` creates a
   rollback Bundle (`--to <bundle>` picks the version).
   - The rollback Bundle goes through dev first.
@@ -404,7 +435,7 @@ starts promoting.
 | `environments.dev.approval` | `auto` | dev is pushed to `main` at once |
 | `environments.dev.bake` | `{minutes: 2, policy: reset-on-alarm}` | dev must stay healthy for 2 minutes before Verified |
 | `environments.dev.onHealthFailure` | `rollback` | a version that fails in dev is rolled back by a rollback Bundle |
-| `environments.dev.healthTimeout` | `10m` | when a dev that is not Healthy counts as failed (see the Progressing limitation) |
+| `environments.dev.healthTimeout` | `10m` | when a dev that is not Healthy counts as failed (the fallback; `rollbackPolicy` acts sooner) |
 | `environments.prod.approval` | `pr-review` | prod through a GitLab MR, labelled with the Pipeline name (`pr.labels`) |
 | `environments.prod.healthTimeout`, `onHealthFailure`, `waitForMergeTimeout` | empty | the chart-wide `healthTimeout`, and Kardinal's defaults |
 | `gates.prod-dev-soak` | **on** | prod waits until the version has run in dev for 2 minutes |
@@ -416,6 +447,7 @@ starts promoting.
 | `notifications` | off | NotificationHook `rust-events`, `cloudevents`, the ten events above |
 | `subscription` | off | ECR Subscription `rust-ecr` (NewestBuild, commit-SHA tags, every 2 minutes); pair it with `kardinal.trigger: subscription` |
 | `ciTokenReview` | **on** | Role `rust-ci-bundle-creator` for CI's own token, used once `kardinal.auth` is `tokenreview` |
+| `rollbackPolicy` | **on** (`environments: [dev]`, `failureThreshold: 3`) | the `arm-rollback` pre-deploy hook: a RollbackPolicy per version, so an aborted dev canary rolls back after 3 failed checks; ServiceAccount `kardinal-rollback-arm` (must be in the addon's `hooks.serviceAccounts`) |
 | `healthTimeout`, `historyLimit` | `20m`, `50` | defaults for every environment; finished Bundles kept (the targets of `rollback --to`) |
 
 On the live stack, `rust-cicd` runs `kardinal.auth: tokenreview` and `trigger: ci`.
@@ -612,7 +644,10 @@ Troubleshooting (seen on the live stack):
 |---|---|
 | UI API 401 right after a fresh install | the EKS identity provider association takes about 5-30 minutes, and requests can be refused for about a minute after it turns ACTIVE |
 | A Keycloak user signs in but sees no pipelines | no binding for their group: add it to `sso.roleBindings` |
-| A step waits 20 minutes, then the Bundle fails | the canary aborted: the Argo CD Application shows Progressing, not Degraded, because it tracks the AppmodService, not the Rollout. Check `kubectl argo rollouts get rollout` on the spoke. A newer Bundle supersedes the stuck one |
+| A step says `unhealthy via argocd: health=Degraded` and waits until `health.timeout` | the canary aborted (`kubectl argo rollouts get rollout` on the spoke; the AppmodService's `status.rollout` has the message). Without a RollbackPolicy (java), Kardinal acts only at the timeout (#2006). A newer Bundle supersedes the stuck one |
+| rust's dev rolled a version back by itself | its RollbackPolicy fired: `kubectl -n rust-app get rollbackpolicies` (`SHOULDROLLBACK`, `FAILURES`), the rollback Bundle `<bundle>-rollback-policy` |
+| A dev step waits for `pre-deploy hook arm-rollback` | the hook's Job is starting; `kubectl -n rust-app logs job/<step>-pre-arm-rollback-<hash>`. A warning there means no RollbackPolicy (the version promotes anyway) |
+| The Application of an AppmodService shows Progressing for an aborted canary | the hub has no `argocd-cm` with the AppmodService check (`kubectl -n argocd get cm argocd-cm`): the `kardinal` addon renders it only on an EKS capability hub (`aws_argocd_url` set) |
 | dev waits for Argo CD's poll after a version that changed nothing | kardinal-promoter #1910 (no refresh for a no-change step) |
 | CI's `create-bundle` gets 403 `cannot get pipelines.kardinal.io` | `kardinal.auth: tokenreview` without the Role: add `<app>-ci-bundle-creator` to `<app>-app` (template `kardinal/ci-bundle-creator.yaml`, rust `ciTokenReview`) |
 | CI's `create-bundle` gets 401 | with `tokenreview`: the addon's `bundleAPI.tokenReview` is off. With `token`: the copied token Secret is missing (`kubectl -n team-<app> get externalsecret <app>-cicd-kardinal-bundle-token`) |
@@ -664,8 +699,10 @@ to clean one app only.
 - **One OIDC identity provider per EKS cluster**: the hub's is Keycloak, for the Kardinal UI.
 - **Backstage** has no config checksum: app-config changes need a restart (all of them, not only
   the Kardinal link).
-- **A failed canary is noticed at `health.timeout`**, not at once: Argo CD shows the AppmodService
-  Progressing (see [Bake, automatic rollback and supersession](#bake-automatic-rollback-and-supersession)).
+- **A failed canary acts at once only through a RollbackPolicy**: Argo CD shows it Degraded at once,
+  but Kardinal applies `onHealthFailure` at `health.timeout` (#2006). rust's chart arms a
+  RollbackPolicy per version with a hook; java's and the Backstage apps' Pipelines do not (see
+  [Bake, automatic rollback and supersession](#bake-automatic-rollback-and-supersession)).
 - **The GitLab webhook is not exposed**: merges are seen by polling, within 30 s.
 - **MetricChecks**: only the `web` provider is wired; CloudWatch and AMP need credentials Kardinal
   does not have here.
@@ -696,3 +733,6 @@ all open on 2026-10-15.
 | [#1944](https://github.com/pnz1990/kardinal-promoter/issues/1944) | change failure rate and time to restore never count a retired Bundle | use DevLake for DORA |
 | [#1945](https://github.com/pnz1990/kardinal-promoter/issues/1945) | NotificationHook: Bundle and PromotionStep events carry the creation time | order events by arrival |
 | [#1946](https://github.com/pnz1990/kardinal-promoter/issues/1946) | Subscription: `provenance.commitSHA` is the image digest | prefer `kardinal.trigger: ci` |
+| [#2006](https://github.com/pnz1990/kardinal-promoter/issues/2006) | `onHealthFailure` never acts on a failed check before the first healthy one (`fail-on-alarm` included); an aborted Argo Rollouts canary is not a failed result | rust: a RollbackPolicy per version (`rollbackPolicy`) |
+| [#2007](https://github.com/pnz1990/kardinal-promoter/issues/2007) | `health.refresh` only for `argocd` and `flux`: an environment checked with `argoRollouts` waits for Argo CD's poll | we keep `health.type: argocd` |
+| [#2008](https://github.com/pnz1990/kardinal-promoter/issues/2008) | `health.kubeconfigSecretRef` on EKS: no IAM-based credential, only long-lived or self-refreshed tokens | no remote health checks |
