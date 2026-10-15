@@ -253,12 +253,14 @@ kardinal:
       # Leave the ignored fields below out of the apply too (the aggregated rules).
       - RespectIgnoreDifferences=true
   ignoreDifferences:
+    # No /metadata/managedFields or /metadata/generation here, unlike the other entries:
+    # RespectIgnoreDifferences copies ignored live fields into the server-side apply, and
+    # the API server refuses an apply that carries managedFields. Argo CD does not diff
+    # either field anyway.
     - group: external-secrets.io
       kind: ExternalSecret
       jsonPointers:
         - /status
-        - /metadata/generation
-        - /metadata/managedFields
       jqPathExpressions:
         - '.spec.data[]?.remoteRef.nullBytePolicy'
         - '.spec.dataFrom[]?.extract.nullBytePolicy'
