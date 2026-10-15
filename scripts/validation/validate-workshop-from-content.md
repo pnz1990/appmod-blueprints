@@ -274,7 +274,7 @@ gaps with manual commands.
 | 30.1  | `30_ProgressiveApplicationDelivery/10_progressive-delivery/index.en.md`           | Progressive delivery demo (blue→yellow) |
 | 30.2  | `30_ProgressiveApplicationDelivery/20_create-cicd/index.en.md`                    | Java CI/CD via Backstage + build        |
 | 30.3  | `30_ProgressiveApplicationDelivery/30_function-performance-test-java/index.en.md` | Functional & performance gate tests     |
-| 30.4  | `30_ProgressiveApplicationDelivery/40_production-deploy-kargo/index.en.md`        | Production deploy with Kargo            |
+| 30.4  | `30_ProgressiveApplicationDelivery/40_production-deploy-kargo/index.en.md`        | Production deploy with Kardinal (page text: `docs/platform/progressive-delivery-kardinal.md`) |
 | 30.5  | `30_ProgressiveApplicationDelivery/50_metrics-driven-decisions/index.en.md`       | Metrics-driven decisions (Rust)         |
 | 30.6  | `30_ProgressiveApplicationDelivery/60_measuring_platform_success/index.en.md`     | Measuring platform success intro        |
 
@@ -487,27 +487,20 @@ to open a new session or log in. Instead:
 
 Do NOT skip these exercises — they validate that the schemas and prompts produce correct output.
 
-### Kargo UI Promotions
+### Kardinal approvals (UI steps)
 
-Kargo promotions are designed for the UI. The IDE IAM role cannot create Promotion
-resources directly. Use service account impersonation:
+"Approve in the Kardinal UI" has a CLI equivalent with the same effect: the IDE role may create
+Approvals on the hub. It is recorded under the IDE's IAM identity instead of `oidc:user1`.
 
 ```bash
-FREIGHT=$(kubectl get freight -n <project-ns> -o jsonpath='{.items[0].metadata.name}')
-kubectl -n <project-ns> create --as=system:serviceaccount:kargo:kargo-admin -f - <<EOF
-apiVersion: kargo.akuity.io/v1alpha1
-kind: Promotion
-metadata:
-  name: prod-manual
-  namespace: <project-ns>
-spec:
-  stage: prod
-  freight: $FREIGHT
-  steps:
-  - task:
-      name: update-image
-EOF
+kardinal inbox -A                        # what waits for an approval
+kardinal explain java -n java-app        # prod-approval Blocking, waiting for approvals: 0 of 1
+kardinal approve java prod -n java-app --yes --comment "validation"
+kardinal get bundles -n java-app         # the version turns Verified once prod is Healthy
 ```
+
+To validate the UI path itself (Keycloak SSO, UI approval as `oidc:user1`), drive a browser
+(headless Chromium): open `$KARDINAL_URL`, sign in as user1, then Approvals, Approve, confirm.
 
 ### Rollout Watching
 
@@ -746,7 +739,7 @@ hub && trigger-devlake rust
 | 30.1  | Progressive demo (blue→yellow)  | Canary rollout completes                            |
 | 30.2  | Java CI/CD + build              | cicdpipeline ACTIVE, ECR image in manifest          |
 | 30.3  | Functional/performance gates    | Gate failure then fix, rollout healthy              |
-| 30.4  | Kargo production deploy         | Kargo freight promoted to prod                      |
+| 30.4  | Kardinal production deploy      | Bundle Verified in prod after an approval; prod manifest commit by kardinal-promoter |
 | 30.5  | Metrics-driven decisions (Rust) | Rollout with metrics passes, then fails with delay  |
 | 30.6  | Measuring success               | Read-only exploration                               |
 | 40.x  | AI/ML delivery                  | JupyterHub accessible, Ray inference returns generated_text, Spark job COMPLETED |

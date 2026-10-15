@@ -118,9 +118,11 @@ kardinal-promoter:
       key: secret
   ui:
     auth:
-      # Users sign in to the UI with a Kubernetes token for audience kardinal-promoter
-      # (kubectl create token <sa> --audience kardinal-promoter), so UI approvals are
-      # recorded under their own name.
+      # Every UI API call is authenticated with a TokenReview and authorized with the caller's
+      # RBAC, so UI approvals are recorded under the caller's name. With `sso` (above), the
+      # caller is the Keycloak user, whose ID token oauth2-proxy forwards; a Kubernetes token
+      # pasted into the UI's sign-in dialog (kubectl create token <sa> --audience
+      # kardinal-promoter) works too, e.g. through a port-forward.
       tokenReview: true
   graph:
     # The Graph ServiceAccount may read health objects here: the hub's Argo CD

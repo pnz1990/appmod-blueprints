@@ -21,6 +21,7 @@ is applied, ArgoCD takes over and the platform is fully self-managing via GitOps
 - [Hub Networking](HUB_NETWORKING.md)
 - [ACK Pod Identity Design](ack-pod-identity-design.md)
 - [Multi-Cluster Auth](MULTI_CLUSTER_AUTH.md) — and the [Consumer Guide](MULTI_CLUSTER_AUTH_CONSUMER_GUIDE.md)
+- [Progressive delivery with Kardinal](progressive-delivery-kardinal.md) — promotion dev → prod, the hub's upstream kro, Keycloak SSO for the UI, the workshop's "Production deploy" page
 - [EKS Capabilities: ArgoCD Setup](../EKS-Capabilities-ArgoCD-Setup.md) and [KRO/ACK Setup](../EKS-Capabilities-KRO-ACK-Setup.md)
 
 ## Troubleshooting
