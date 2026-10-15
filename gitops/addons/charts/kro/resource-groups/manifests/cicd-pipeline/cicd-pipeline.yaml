@@ -62,6 +62,13 @@ spec:
        # and create Bundles in its namespace (e.g. applications/rust/kardinal ciTokenReview).
        # The Bundle then records the ServiceAccount as its verified creator.
        auth: string | default="token"
+       # Who creates the Bundles. "ci" (default): CI, after the image push (create-bundle).
+       # "subscription": CI only builds and pushes the image; a Kardinal Subscription on the
+       # ECR repository creates the Bundles (e.g. applications/rust/kardinal subscription),
+       # without CI provenance. One trigger per Pipeline: with both, every build is promoted
+       # twice (the Subscription's Bundle supersedes CI's). CI never writes deployment/dev
+       # while kardinal.enabled is "true".
+       trigger: string | default="ci"
     status:
       # ECR Repository information
       ecrMainRepositoryURI: ${ecrmainrepo.status.?repositoryURI}
@@ -844,6 +851,7 @@ spec:
       includeWhen:
        - ${schema.spec.kardinal.enabled == "true"}
        - ${schema.spec.kardinal.auth != "tokenreview"}
+       - ${schema.spec.kardinal.trigger != "subscription"}
       readyWhen:
        - ${kardinalbundletoken.status.conditions.exists(x, x.type == 'Ready' && x.status == "True")}
       template:
@@ -1500,7 +1508,7 @@ spec:
                    - name: create-bundle
                      template: create-kardinal-bundle
                      dependencies: [stamp-build-time]
-                     when: "'${schema.spec.kardinal.enabled}' == 'true' && '{{workflow.parameters.image-tag}}' != 'initial'"
+                     when: "'${schema.spec.kardinal.enabled}' == 'true' && '${schema.spec.kardinal.trigger}' != 'subscription' && '{{workflow.parameters.image-tag}}' != 'initial'"
                    - name: notify-completion
                      template: notify-status
                      dependencies: [update-deployment, create-bundle]
