@@ -326,9 +326,13 @@ tasks:
         kubectl delete relationaldatabases.awsblueprints.io --all -A --wait=false 2>/dev/null || true
         # Wait up to 15 min for Crossplane to delete the composed Upbound managed
         # resources — this is what actually deletes the AWS security group.
+        # Count only resources a claim composed (crossplane.io/claim-name): other managed
+        # resources, e.g. the AMG workspace's <prefix>-amg-sg from the kro Grafana RGD, are
+        # not deleted here and would hold this loop for the full 15 min. `|| true`: a
+        # kubectl error (hub already gone on a re-run) must not abort destroy before Phase 3.
         for i in $(seq 1 90); do
-          REMAIN=$(kubectl get securitygroups.ec2.aws.upbound.io,clusters.rds.aws.upbound.io,subnetgroups.rds.aws.upbound.io \
-            -A --no-headers 2>/dev/null | wc -l | tr -d ' ')
+          REMAIN=$({ kubectl get securitygroups.ec2.aws.upbound.io,clusters.rds.aws.upbound.io,subnetgroups.rds.aws.upbound.io \
+            -A -l crossplane.io/claim-name --no-headers 2>/dev/null || true; } | wc -l | tr -d ' ')
           if [ "$REMAIN" = "0" ]; then
             printf '{{.C_OK}}  ✓ Crossplane RDS managed resources reaped.{{.C_RESET}}\n'
             break
