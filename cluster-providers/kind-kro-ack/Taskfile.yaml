@@ -1652,6 +1652,8 @@ tasks:
       # list in step 8 — adding/removing an ACK controller means updating all three.
       INFRA_STACK: "argocd crossplane crossplane-base kro kro-manifests kro-manifests-hub ack-iam ack-eks ack-ec2 ack-ecr ack-s3 ack-dynamodb ack-efs"
       KC: "KUBECONFIG={{.ROOT_DIR}}/private/hub-kubeconfig kubectl"
+      # Upper bound (s) for step 7b. The AMP scrapers alone took ~13 min to delete live.
+      XP_DELETE_WAIT: '{{.XP_DELETE_WAIT | default "1200"}}'
     cmds:
       # Best-effort hub kubeconfig — if the hub EKS is already gone, every kubectl
       # below no-ops (2>/dev/null || true) and the task still completes cleanly.
@@ -1819,6 +1821,28 @@ tasks:
                 sleep 5; E=$((E + 5))
               done
             fi
+          done
+        ignore_error: true
+      # 7b. Crossplane must outlive the AWS resources it is still deleting. Argo CD deletes
+      #     an Application's resources one sync wave at a time, and an AMP scraper
+      #     (observability-aws, wave 3) takes minutes to delete, so step 7's 120 s run out
+      #     before the later waves (the AMP and AMG workspaces, the AMG security group)
+      #     have started. Step 8 would then remove the providers, and those resources stay
+      #     in AWS. Wait, bounded, while an Application being deleted still manages
+      #     Crossplane (*.upbound.io) resources and a provider is running to delete them.
+      - cmd: |
+          E=0
+          while [ "$E" -lt {{.XP_DELETE_WAIT}} ]; do
+            PENDING=$({{.KC}} get applications -n argocd -o json 2>/dev/null | jq -r '[.items[]
+              | select(.metadata.deletionTimestamp != null)
+              | select(any(.status.resources[]?; (.group // "") | endswith(".upbound.io")))
+              | .metadata.name] | join(" ")' 2>/dev/null || true)
+            if [ -z "$PENDING" ]; then break; fi
+            UP=$({{.KC}} get pods -n crossplane-system -l pkg.crossplane.io/provider \
+              -o jsonpath='{range .items[?(@.status.phase=="Running")]}{.metadata.name}{" "}{end}' 2>/dev/null || true)
+            if [ -z "$UP" ]; then echo "  No Crossplane provider running: not waiting for $PENDING"; break; fi
+            echo "  Waiting for Crossplane to delete the AWS resources of: $PENDING (${E}s)"
+            sleep 15; E=$((E + 15))
           done
         ignore_error: true
       # 8. Delete the INFRA-PROVISIONING STACK LAST, reverse order (consumers -> controllers).
